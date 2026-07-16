@@ -7,6 +7,31 @@ npm install
 npm run dev
 ```
 
+Requires a `.env.local` file (see "Google Sign-In" below) for auth to work,
+even in local dev.
+
+## Google Sign-In (Firebase Auth)
+
+The app now requires Google sign-in restricted to @compass.com before
+anything renders (`src/AuthGate.jsx`). To wire it up:
+
+1. Firebase Console → your project → Authentication → Sign-in method →
+   enable Google.
+2. Authentication → Settings → Authorized domains → add your Vercel domain.
+3. Project settings → Your apps → Web app → copy the config values.
+4. Set these as environment variables -- locally in `.env.local`, and in
+   **Vercel → Project → Settings → Environment Variables**:
+   ```
+   VITE_FIREBASE_API_KEY=...
+   VITE_FIREBASE_AUTH_DOMAIN=...
+   VITE_FIREBASE_PROJECT_ID=...
+   VITE_FIREBASE_STORAGE_BUCKET=...
+   VITE_FIREBASE_MESSAGING_SENDER_ID=...
+   VITE_FIREBASE_APP_ID=...
+   ```
+5. Redeploy (Vercel picks up new env vars only on the next deploy, not
+   automatically on existing ones).
+
 ## Deploying (GitHub + Vercel)
 
 1. Create a new GitHub repo, push this project to it:
