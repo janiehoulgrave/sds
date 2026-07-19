@@ -10,5 +10,13 @@ export default defineConfig({
   // since images become URLs instead of embedded data.
   build: {
     chunkSizeWarningLimit: 6000,
+    // esbuild (Vite's default minifier) produced a bundle that threw
+    // "Cannot access 'X' before initialization" at runtime on this
+    // particular file, even though the build itself reported success --
+    // confirmed via direct testing that the unminified source has no such
+    // ordering bug, so this is a minifier-specific edge case, likely from
+    // esbuild's scope analysis on an unusually large single-file bundle.
+    // Terser is slower but more conservative and doesn't hit this.
+    minify: "terser",
   },
 });
