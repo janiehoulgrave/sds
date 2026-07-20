@@ -113,29 +113,30 @@ export default function AuthGate({ children }) {
 
   if (!isAllowed) {
     return (
-      <div style={{ display:"flex", flexDirection:"column", height:"100vh", fontFamily:"sans-serif" }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100vh", fontFamily:"sans-serif", padding:20, background:"#161616" }}>
+        <div style={{ background:"#fff", borderRadius:18, overflow:"hidden", maxWidth:400, width:"100%", boxShadow:"0 25px 70px rgba(0,0,0,0.4)" }}>
 
-        {/* Hero banner -- same treatment (dark charcoal fading into the real
-            dashboard photo) as the actual Dashboard screen someone lands on
-            right after signing in, so this doesn't feel like a different app. */}
-        <div style={{ position:"relative", minHeight:260, background:"#161616", display:"flex", alignItems:"center", overflow:"hidden", flexShrink:0 }}>
-          <img src={HERO_PHOTO} alt="" aria-hidden="true"
-            style={{ position:"absolute", top:0, right:0, width:"48%", height:"100%", objectFit:"cover", objectPosition:"center center", pointerEvents:"none" }} />
-          <div style={{ position:"absolute", inset:0, background:"linear-gradient(to right, #161616 0%, #161616 55%, rgba(22,22,22,0.75) 65%, rgba(22,22,22,0.2) 80%, rgba(22,22,22,0) 100%)" }} />
-          <div style={{ position:"relative", zIndex:1, padding:"40px 48px", maxWidth:520 }}>
-            <img src={COMPASS_LOGO} alt="Compass" style={{ height:18, marginBottom:20, filter:"brightness(0) invert(1)" }} />
-            <h1 style={{ fontSize:32, fontWeight:800, color:"#fff", letterSpacing:-0.5, marginBottom:12, lineHeight:1.2 }}>
-              Signature Design Studio
-            </h1>
-            <p style={{ fontSize:15, color:"rgba(255,255,255,0.75)", lineHeight:1.65, maxWidth:420 }}>
-              Sign in with your Compass Google account to design, manage, and deploy your professional email signature.
-            </p>
+          {/* Hero strip -- same dark-into-photo treatment as the actual
+              Dashboard banner someone lands on right after signing in, just
+              sized to fit inside a compact card instead of the full page. */}
+          <div style={{ position:"relative", height:170, background:"#161616", display:"flex", alignItems:"flex-end", overflow:"hidden" }}>
+            <img src={HERO_PHOTO} alt="" aria-hidden="true"
+              style={{ position:"absolute", top:0, right:0, width:"55%", height:"100%", objectFit:"cover", objectPosition:"center center", pointerEvents:"none" }} />
+            <div style={{ position:"absolute", inset:0, background:"linear-gradient(to right, #161616 0%, #161616 45%, rgba(22,22,22,0.7) 60%, rgba(22,22,22,0.15) 80%, rgba(22,22,22,0) 100%)" }} />
+            <div style={{ position:"relative", zIndex:1, padding:"24px 28px" }}>
+              <img src={COMPASS_LOGO} alt="Compass" style={{ height:14, marginBottom:12, filter:"brightness(0) invert(1)" }} />
+              <h1 style={{ fontSize:22, fontWeight:800, color:"#fff", letterSpacing:-0.3, lineHeight:1.2 }}>
+                Signature Design Studio
+              </h1>
+            </div>
           </div>
-        </div>
 
-        {/* Sign-in action */}
-        <div style={{ flex:1, background:"#fff", display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
-          <div style={{ maxWidth:320, width:"100%", textAlign:"center" }}>
+          {/* Sign-in action */}
+          <div style={{ padding:"28px 32px 32px", textAlign:"center" }}>
+            <div style={{ fontSize:14, color:"#6b7280", marginBottom:22, lineHeight:1.5 }}>
+              Sign in with your Compass Google account to design, manage, and deploy your professional email signature.
+            </div>
+
             {signedOutForInactivity.current && (
               <div style={{ fontSize:13, color:"#374151", background:"#f3f4f6", padding:"10px 14px", borderRadius:8, marginBottom:14, textAlign:"left" }}>
                 You were signed out after a period of inactivity. Please sign in again.
@@ -160,7 +161,7 @@ export default function AuthGate({ children }) {
               Sign in with Google
             </button>
 
-            <div style={{ fontSize:12, color:"#9ca3af", marginTop:20 }}>
+            <div style={{ fontSize:12, color:"#9ca3af", marginTop:18 }}>
               For Compass agents only &middot; @compass.com accounts
             </div>
           </div>
