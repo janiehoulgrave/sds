@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { onAuthStateChanged, signInWithPopup, signOut } from "firebase/auth";
 import { auth, googleProvider } from "./firebase.js";
-import { COMPASS_LOGO, HERO_PHOTO } from "./brandAssets.js";
+import { HERO_PHOTO } from "./brandAssets.js";
 
 const ALLOWED_DOMAIN = "compass.com";
 const INACTIVITY_LIMIT_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -114,27 +114,26 @@ export default function AuthGate({ children }) {
   if (!isAllowed) {
     return (
       <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100vh", fontFamily:"sans-serif", padding:20, background:"#161616" }}>
-        <div style={{ background:"#fff", borderRadius:18, overflow:"hidden", maxWidth:400, width:"100%", boxShadow:"0 25px 70px rgba(0,0,0,0.4)" }}>
+        <div style={{ background:"#fff", borderRadius:20, overflow:"hidden", maxWidth:480, width:"100%", boxShadow:"0 25px 70px rgba(0,0,0,0.4)" }}>
 
           {/* Hero strip -- same dark-into-photo treatment as the actual
               Dashboard banner someone lands on right after signing in, just
               sized to fit inside a compact card instead of the full page. */}
-          <div style={{ position:"relative", height:170, background:"#161616", display:"flex", alignItems:"flex-end", overflow:"hidden" }}>
+          <div style={{ position:"relative", height:210, background:"#161616", display:"flex", alignItems:"flex-end", overflow:"hidden" }}>
             <img src={HERO_PHOTO} alt="" aria-hidden="true"
               style={{ position:"absolute", top:0, right:0, width:"55%", height:"100%", objectFit:"cover", objectPosition:"center center", pointerEvents:"none" }} />
             <div style={{ position:"absolute", inset:0, background:"linear-gradient(to right, #161616 0%, #161616 45%, rgba(22,22,22,0.7) 60%, rgba(22,22,22,0.15) 80%, rgba(22,22,22,0) 100%)" }} />
-            <div style={{ position:"relative", zIndex:1, padding:"24px 28px" }}>
-              <img src={COMPASS_LOGO} alt="Compass" style={{ height:14, marginBottom:12, filter:"brightness(0) invert(1)" }} />
-              <h1 style={{ fontSize:22, fontWeight:800, color:"#fff", letterSpacing:-0.3, lineHeight:1.2 }}>
+            <div style={{ position:"relative", zIndex:1, padding:"30px 36px" }}>
+              <h1 style={{ fontSize:27, fontWeight:800, color:"#fff", letterSpacing:-0.3, lineHeight:1.2 }}>
                 Signature Design Studio
               </h1>
             </div>
           </div>
 
           {/* Sign-in action */}
-          <div style={{ padding:"28px 32px 32px", textAlign:"center" }}>
-            <div style={{ fontSize:14, color:"#6b7280", marginBottom:22, lineHeight:1.5 }}>
-              Sign in with your Compass Google account to design, manage, and deploy your professional email signature.
+          <div style={{ padding:"34px 40px 40px", textAlign:"center" }}>
+            <div style={{ fontSize:15, color:"#6b7280", marginBottom:26, lineHeight:1.55 }}>
+              Sign in with your Compass Google account to create and manage your professional email signature.
             </div>
 
             {signedOutForInactivity.current && (
@@ -149,7 +148,7 @@ export default function AuthGate({ children }) {
             )}
 
             <button onClick={handleSignIn}
-              style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:10, width:"100%", padding:"12px 20px", fontSize:15, fontWeight:600, borderRadius:10, border:"1px solid #d1d5db", background:"#fff", cursor:"pointer", boxShadow:"0 1px 2px rgba(0,0,0,0.05)", fontFamily:"inherit", transition:"background 0.15s" }}
+              style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:10, width:"100%", padding:"13px 20px", fontSize:15, fontWeight:600, borderRadius:10, border:"1px solid #d1d5db", background:"#fff", cursor:"pointer", boxShadow:"0 1px 2px rgba(0,0,0,0.05)", fontFamily:"inherit", transition:"background 0.15s" }}
               onMouseEnter={e=>e.currentTarget.style.background="#f9fafb"}
               onMouseLeave={e=>e.currentTarget.style.background="#fff"}>
               <svg width="18" height="18" viewBox="0 0 48 48">
@@ -161,7 +160,7 @@ export default function AuthGate({ children }) {
               Sign in with Google
             </button>
 
-            <div style={{ fontSize:12, color:"#9ca3af", marginTop:18 }}>
+            <div style={{ fontSize:13, color:"#9ca3af", marginTop:20 }}>
               For Compass agents only &middot; @compass.com accounts
             </div>
           </div>
