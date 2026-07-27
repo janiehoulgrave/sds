@@ -1,0 +1,26 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Banners: any signed-in @compass.com user can read (so the gallery
+    // works for every agent), but only signed-in @compass.com users can
+    // write -- this is intentionally the same trust level as the rest of
+    // the app (anyone with a real Compass Google account is trusted not to
+    // do anything malicious), not a hardened "true admin" check. The
+    // client-side admin-mode UI gate is what keeps this out of casual
+    // users' way; these rules are the actual backstop against someone
+    // outside the organization touching this data at all.
+    match /banners/{bannerId} {
+      allow read: if request.auth != null
+                   && request.auth.token.email.matches('.*@compass[.]com');
+      allow write: if request.auth != null
+                    && request.auth.token.email.matches('.*@compass[.]com');
+    }
+
+    // Default: deny everything else until explicitly opened up (e.g. when
+    // user profiles/saved designs move to Firestore next).
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
