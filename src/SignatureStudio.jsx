@@ -2034,17 +2034,18 @@ function renderElementInner(el, profile) {
         const h = s.height || "90px";
         const wNum = parseInt(w) || 90;
         const hNum = parseInt(h) || 90;
-        // Explicit HTML width/height attributes (not just CSS) are essential
-        // for Outlook, which frequently ignores CSS sizing on <img> and falls
-        // back to the source file's raw pixel dimensions -- that mismatch is
-        // exactly what turns a circle into an oval (border-radius:50% applied
-        // to a box that didn't end up square).
-        // aspect-ratio keeps the box proportional if max-width ever has to
-        // shrink it below its intended width (e.g. in the Dashboard's
-        // scaled-down preview cards, where a column can render narrower than
-        // the photo's set size) -- without this, only the width would
-        // shrink while height stayed fixed, squishing a circle into an oval.
-        return `<div style="margin:0;width:${w};height:${h};max-width:100%;aspect-ratio:${wNum}/${hNum};border-radius:${br};overflow:hidden;mso-margin-top-alt:0;mso-margin-bottom-alt:0;${bdr}"><img src="${src}" width="${wNum}" height="${hNum}" style="width:100%;height:100%;object-fit:${s.objectFit||"cover"};display:block;" referrerpolicy="no-referrer" /></div>`;
+        // Sizing lives directly on the <img> itself now -- both the HTML
+        // width/height attributes (essential for Outlook, which frequently
+        // ignores CSS sizing on <img> and falls back to these) AND matching
+        // inline CSS, rather than making the img 100%/100% of a separately-
+        // sized wrapper div. A wrapper-based box can get its own dimensions
+        // squished independently of the img (e.g. in a narrow column, or
+        // when an email client's paste handling drops/rewrites the wrapper's
+        // styling but keeps the img's own attributes intact) -- anchoring
+        // the size on the img directly removes that indirection. aspect-
+        // ratio is a belt-and-suspenders backstop for modern browsers if
+        // max-width ever has to shrink the width below its intended size.
+        return `<div style="display:inline-block;line-height:0;max-width:100%;border-radius:${br};overflow:hidden;mso-margin-top-alt:0;mso-margin-bottom-alt:0;${bdr}"><img src="${src}" width="${wNum}" height="${hNum}" style="width:${w};height:${h};max-width:100%;aspect-ratio:${wNum}/${hNum};object-fit:${s.objectFit||"cover"};display:block;" referrerpolicy="no-referrer" /></div>`;
       }
       case "logo": {
         const src = s.croppedSrc || profile.logoUrl || "";
@@ -3317,7 +3318,7 @@ export default function App() {
                   Upload
                   <input type="file" accept="image/*" style={{ display:"none" }} onChange={e=>{
                     const f=e.target.files?.[0]; if(!f) return;
-                    normalizeImageFile(f, (dataUrl)=>saveProfile({...profile, photoUrl:dataUrl}), 400);
+                    normalizeImageFile(f, (dataUrl)=>saveProfile({...profile, photoUrl:dataUrl}), 480, {quality:0.88});
                   }} />
                 </label>
               </div>
@@ -3330,7 +3331,7 @@ export default function App() {
                   Upload
                   <input type="file" accept="image/*" style={{ display:"none" }} onChange={e=>{
                     const f=e.target.files?.[0]; if(!f) return;
-                    normalizeImageFile(f, (dataUrl)=>saveProfile({...profile, logoUrl:dataUrl}), 300, {png:true});
+                    normalizeImageFile(f, (dataUrl)=>saveProfile({...profile, logoUrl:dataUrl}), 360, {png:true});
                   }} />
                 </label>
               </div>
@@ -5536,7 +5537,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                   const cats = [...new Set(banners.map(b=>b.category))];
                   return cats.map(cat => (
                     <div key={cat} style={{ marginBottom:10 }}>
-                      <div style={{ fontSize:15, fontWeight:700, textTransform:"uppercase", letterSpacing:0.6, color:"#0051d5", marginBottom:6 }}>{cat}</div>
+                      <div style={{ fontSize:11, fontWeight:700, textTransform:"uppercase", letterSpacing:0.6, color:"#6b7280", marginBottom:6 }}>{cat}</div>
                       <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
                         {banners.filter(b=>b.category===cat).map((banner) => (
                           <div key={banner.id}
@@ -6049,7 +6050,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                     <input type="file" accept="image/*" style={{ display:"none" }} onChange={e=>{
                       const f=e.target.files?.[0]; if(!f) return;
                       const isPhoto = selectedEl.subtype==="photo";
-                      normalizeImageFile(f, (dataUrl)=>{ onAddMedia(dataUrl, f.name); onUpdateProfileField(isPhoto?"photoUrl":"logoUrl", dataUrl); }, isPhoto?260:200, isPhoto?undefined:{png:true});
+                      normalizeImageFile(f, (dataUrl)=>{ onAddMedia(dataUrl, f.name); onUpdateProfileField(isPhoto?"photoUrl":"logoUrl", dataUrl); }, isPhoto?480:360, isPhoto?{quality:0.88}:{png:true});
                     }} />
                   </label>
                   {selectedEl.subtype==="photo" && profile.photoUrl && (
@@ -6624,8 +6625,14 @@ function ProfileForm({ profile, onSave, onNavigate }) {
     if (file.size > 15*1024*1024) { alert("File too large (max 15MB)."); return; }
     // Photos compress much better as JPEG (no transparency needed); logos
     // stay PNG since brokerage logos are frequently transparent.
+    // 480px/0.88 for photos and 360px for logos -- previous settings (260px
+    // at default 0.72 quality) were too aggressive for how large these
+    // actually render, especially on retina displays, which need roughly
+    // double the pixel density of the CSS size to look sharp rather than
+    // soft/blurry. Still comfortably small enough to fit in a Firestore
+    // document alongside the rest of the profile.
     const isPhoto = field === "photoUrl";
-    normalizeImageFile(file, (dataUrl)=>{ setDraft(prev => ({...prev, [field]: dataUrl})); }, isPhoto?260:200, isPhoto?undefined:{png:true});
+    normalizeImageFile(file, (dataUrl)=>{ setDraft(prev => ({...prev, [field]: dataUrl})); }, isPhoto?480:360, isPhoto?{quality:0.88}:{png:true});
   }
 
   const PHOTO_PH = PROFILE_PHOTO_PH;
