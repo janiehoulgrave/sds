@@ -5473,7 +5473,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
               </div>
               {/* Dynamic Elements */}
               <div>
-                <div style={{ fontSize:14, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8, color:"#0051d5", marginBottom:8 }}>Smart Fields</div>
+                <div style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8, color:"#9ca3af", marginBottom:8 }}>Smart Fields</div>
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6 }}>
                   {DYNAMIC_ELEMENTS.map(b => (
                     <div key={b.subtype}
