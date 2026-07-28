@@ -1926,6 +1926,20 @@ function renderElementInner(el, profile) {
   const fSize = s.fontSize || "13px";
   const fColor = s.color || "#374151";
   const fw = s.fontWeight || "400";
+  // Convert ^text^ to superscript HTML, and (R) to ® -- declared here, before
+  // the switch below, rather than inline between two case labels. A function
+  // declared directly inside a switch body (not nested in its own case
+  // block) only becomes initialized once control flow sequentially passes
+  // through that line -- but switch dispatches by jumping straight to the
+  // matching case, so any case appearing before this declaration's original
+  // position (including "name" itself, immediately after it) would jump
+  // past it and hit a real ReferenceError. Defining it up front avoids that
+  // ambiguity altogether.
+  function applySup(t) {
+    return t.replace(/\(R\)/g, "<sup style=\"font-size:0.6em;vertical-align:super;\">&reg;</sup>")
+            .replace(/\(r\)/g, "<sup style=\"font-size:0.6em;vertical-align:super;\">&reg;</sup>")
+            .replace(/\^([^^]+)\^/g, "<sup style=\"font-size:0.6em;vertical-align:super;\">$1</sup>");
+  }
   const FF_MAP = {
     "compass-sans":    "'Compass Sans','Hanken Grotesk',sans-serif",
     "compass-display": "'Compass Display','Georgia',serif",
@@ -2042,12 +2056,8 @@ function renderElementInner(el, profile) {
         if (!src) return "";
         return `<div style="margin:2px 0;"><img src="${src}" style="width:${s.width||"100px"};height:${s.height||"24px"};object-fit:contain;display:block;" /></div>`;
       }
-      // Convert ^text^ to superscript HTML, and (R) to ®
-      function applySup(t) {
-        return t.replace(/\(R\)/g, "<sup style=\"font-size:0.6em;vertical-align:super;\">&reg;</sup>")
-                .replace(/\(r\)/g, "<sup style=\"font-size:0.6em;vertical-align:super;\">&reg;</sup>")
-                .replace(/\^([^^]+)\^/g, "<sup style=\"font-size:0.6em;vertical-align:super;\">$1</sup>");
-      }
+      // Convert ^text^ to superscript HTML, and (R) to ® -- applySup is
+      // defined at the top of this function now, see comment there.
       case "name": { const nameVal = applySup(profile.name||"Your Name"); return `<div style="${baseStyle}">${nameVal}</div>`; }
       case "title": return `<div style="${baseStyle}">${profile.title||"Realtor®"}</div>`;
       case "company": return `<div style="${baseStyle}">${profile.company||"Compass"}</div>`;
