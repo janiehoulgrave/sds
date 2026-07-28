@@ -2199,9 +2199,19 @@ function generateSigHTML(sig, profile) {
     row.columns.forEach(col => {
       const cs = col.style || {};
       const w = cs.width || `${Math.floor(100/row.columns.length)}%`;
+      // If this column holds a photo, floor its width in real pixels so the
+      // fixed table layout can never compress it below the photo's actual
+      // set size -- without this, a percentage-based column can render
+      // narrower than the photo whenever the table itself is narrower than
+      // its full design width (which happens in the Dashboard's scaled-down
+      // preview cards, and in how Gmail/Outlook re-render pasted HTML),
+      // squishing a circular photo into an oval.
+      const photoEl = col.elements.find(el => el.type === "dynamic" && el.subtype === "photo");
+      const photoMinW = photoEl ? (parseInt(photoEl.style?.width) || 90) : null;
       const cStyle = [
         `vertical-align:${cs.verticalAlign||"top"}`,
         `width:${w}`,
+        photoMinW ? `min-width:${photoMinW}px` : "",
         cs.paddingLeft ? `padding-left:${cs.paddingLeft}` : "",
         cs.paddingRight ? `padding-right:${cs.paddingRight}` : "",
         cs.paddingTop ? `padding-top:${cs.paddingTop}` : "",
