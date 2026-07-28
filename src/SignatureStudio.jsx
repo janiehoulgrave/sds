@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { collection, onSnapshot, addDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "./firebase.js";
+import { collection, onSnapshot, addDoc, serverTimestamp, doc, getDoc, setDoc, getDocs, deleteDoc } from "firebase/firestore";
+import { db, auth } from "./firebase.js";
 
 // --- Preset Thumbnail Images (compressed) ---
 const IMG_NavLogo = "data:image/png;base64,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";
@@ -2234,6 +2234,76 @@ function SignatureRenderer({ signature, profile }) {
 
 // --- Main App ---
 export default function App() {
+
+  const [screen, setScreen] = useState("home");
+  const [accountLoading, setAccountLoading] = useState(true);
+  const [showProfileSetup, setShowProfileSetup] = useState(false);
+  const [profile, setProfile] = useState(DEFAULT_PROFILE);
+  const [signatures, setSignatures] = useState([]);
+
+  // Load profile + saved signatures from Firestore, keyed to this signed-in
+  // account (AuthGate guarantees we only ever get here already signed in,
+  // so auth.currentUser is reliably available). If no Firestore data exists
+  // yet for this account but there's legacy data sitting in this browser's
+  // localStorage (from before accounts existed), migrate it in automatically
+  // rather than making someone re-enter everything they already had.
+  useEffect(() => {
+    let cancelled = false;
+    async function loadAccountData() {
+      const uid = auth.currentUser?.uid;
+      if (!uid) { setAccountLoading(false); return; }
+
+      try {
+        const profileRef = doc(db, "users", uid);
+        const profileSnap = await getDoc(profileRef);
+        let loadedProfile;
+
+        if (profileSnap.exists()) {
+          loadedProfile = profileSnap.data();
+        } else {
+          // No account data yet -- check for legacy localStorage data from
+          // before this browser's account-based storage existed.
+          let legacy = null;
+          try {
+            const s = localStorage.getItem("ss_profile");
+            if (s) legacy = JSON.parse(s);
+          } catch {}
+          loadedProfile = legacy || DEFAULT_PROFILE;
+          await setDoc(profileRef, loadedProfile);
+        }
+
+        const sigsCol = collection(db, "users", uid, "signatures");
+        const sigsSnap = await getDocs(sigsCol);
+        let loadedSigs;
+
+        if (!sigsSnap.empty) {
+          loadedSigs = sigsSnap.docs.map(d => d.data());
+        } else {
+          let legacySigs = [];
+          try {
+            const s = localStorage.getItem("ss_sigs");
+            if (s) legacySigs = JSON.parse(s);
+          } catch {}
+          loadedSigs = legacySigs;
+          // Migrate each one individually into the subcollection.
+          await Promise.all(legacySigs.map(sig => setDoc(doc(sigsCol, sig.id), sig)));
+        }
+
+        if (!cancelled) {
+          setProfile(loadedProfile);
+          setSignatures(loadedSigs);
+          setShowProfileSetup(!loadedProfile.name || !loadedProfile.email);
+          setAccountLoading(false);
+        }
+      } catch (err) {
+        console.error("Failed to load account data from Firestore:", err);
+        if (!cancelled) setAccountLoading(false);
+      }
+    }
+    loadAccountData();
+    return () => { cancelled = true; };
+  }, []);
+
   // Inject Google Fonts on mount -- Material Symbols + Hanken Grotesk
   useEffect(() => {
     // Google Fonts (UI chrome)
@@ -2355,8 +2425,12 @@ export default function App() {
     }
   }, []);
 
-  // On mount: check URL hash for a shared design and auto-import it
+  // On mount: check URL hash for a shared design and auto-import it. Waits
+  // for account data to finish loading first -- otherwise this could run
+  // before the Firestore fetch resolves, and the later fetch would overwrite
+  // the just-imported signature with data that doesn't include it yet.
   useEffect(() => {
+    if (accountLoading) return;
     const hash = window.location.hash;
     if (!hash.startsWith("#share=")) return;
     try {
@@ -2372,39 +2446,18 @@ export default function App() {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
-      setSignatures(prev => {
-        const already = prev.find(s => s.name === imported.name);
-        if (already) return prev; // don't double-import
-        const next = [imported, ...prev];
-        typeof localStorage !== "undefined" && localStorage.setItem("ss_sigs", JSON.stringify(next));
-        return next;
-      });
+      const already = signatures.find(s => s.name === imported.name);
+      if (!already) {
+        saveSigs([imported, ...signatures]);
+      }
       // Clear the hash so it doesn't re-import on refresh
       window.history.replaceState(null, "", window.location.pathname);
       showToast("Shared design imported! Find it in Recent Projects.");
     } catch(e) {
       console.warn("Could not import shared design:", e);
     }
-  }, []);
+  }, [accountLoading]);
 
-  const [screen, setScreen] = useState("home");
-  const [showProfileSetup, setShowProfileSetup] = useState(() => {
-    try {
-      const p = localStorage.getItem("ss_profile");
-      if (!p) return true;
-      const parsed = JSON.parse(p);
-      return !parsed.name || !parsed.email; // show setup if name/email missing
-    } catch { return true; }
-  });
-  const [profile, setProfile] = useState(() => {
-    try { const s = (typeof localStorage !== "undefined" ? localStorage.getItem("ss_profile") : null); return s ? JSON.parse(s) : DEFAULT_PROFILE; } catch { return DEFAULT_PROFILE; }
-  });
-  const [signatures, setSignatures] = useState(() => {
-    try {
-      const s = (typeof localStorage !== "undefined" ? localStorage.getItem("ss_sigs") : null);
-      return s ? JSON.parse(s) : [];
-    } catch { return []; }
-  });
   const [activeSig, setActiveSig] = useState(null);
   const [history, setHistory] = useState([]); // undo stack
   const [future, setFuture] = useState([]);   // redo stack
@@ -2610,13 +2663,30 @@ export default function App() {
   }
 
   function saveSigs(sigs) {
+    const removedIds = signatures.filter(s => !sigs.find(x => x.id === s.id)).map(s => s.id);
     setSignatures(sigs);
     (typeof localStorage !== "undefined" && localStorage.setItem("ss_sigs", JSON.stringify(sigs)));
+    const uid = auth.currentUser?.uid;
+    if (uid) {
+      const sigsCol = collection(db, "users", uid, "signatures");
+      // Fire-and-forget -- local state is already updated above for a
+      // responsive UI, Firestore syncs in the background. Errors are logged
+      // rather than surfaced, since a transient network hiccup here
+      // shouldn't interrupt someone's editing flow.
+      Promise.all([
+        ...sigs.map(sig => setDoc(doc(sigsCol, sig.id), sig)),
+        ...removedIds.map(id => deleteDoc(doc(sigsCol, id))),
+      ]).catch(err => console.error("Failed to sync signatures to Firestore:", err));
+    }
   }
 
   function saveProfile(p) {
     setProfile(p);
     (typeof localStorage !== "undefined" && localStorage.setItem("ss_profile", JSON.stringify(p)));
+    const uid = auth.currentUser?.uid;
+    if (uid) {
+      setDoc(doc(db, "users", uid), p).catch(err => console.error("Failed to sync profile to Firestore:", err));
+    }
   }
 
   function updateProfileField(field, val) {
@@ -3157,6 +3227,14 @@ export default function App() {
     { id:"templates", icon:"grid_view", label:"Templates" },
     { id:"editor", icon:"hardware", label:"Build" },
   ];
+
+  if (accountLoading) {
+    return (
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100vh", fontFamily:"'Compass Sans','Hanken Grotesk',sans-serif", color:"#6b7280", background:"#E8E8E8" }}>
+        Loading your account…
+      </div>
+    );
+  }
 
   return (
     <div style={{ display:"flex", height:"100vh", background:"#E8E8E8", color:"#141b2b", fontFamily:"'Compass Sans','Hanken Grotesk',sans-serif", overflow:"hidden" }}>
