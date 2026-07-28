@@ -10,13 +10,14 @@ export default defineConfig({
   // since images become URLs instead of embedded data.
   build: {
     chunkSizeWarningLimit: 6000,
-    // esbuild (Vite's default minifier) produced a bundle that threw
-    // "Cannot access 'X' before initialization" at runtime on this
-    // particular file, even though the build itself reported success --
-    // confirmed via direct testing that the unminified source has no such
-    // ordering bug, so this is a minifier-specific edge case, likely from
-    // esbuild's scope analysis on an unusually large single-file bundle.
-    // Terser is slower but more conservative and doesn't hit this.
-    minify: "terser",
+    // Minification has caused "Cannot access 'X' before initialization" at
+    // runtime on this file multiple times, in different specific spots each
+    // time, always in the same nested-rendering pattern, and always absent
+    // when the exact same function is tested unminified in isolation.
+    // Switching from esbuild to terser once already did not fully resolve
+    // this recurring category of bug -- disabling minification entirely
+    // trades a larger bundle for eliminating this whole class of failure,
+    // rather than continuing to chase individual recurrences of it.
+    minify: false,
   },
 });
