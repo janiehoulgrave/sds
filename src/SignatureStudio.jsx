@@ -2039,7 +2039,12 @@ function renderElementInner(el, profile) {
         // back to the source file's raw pixel dimensions -- that mismatch is
         // exactly what turns a circle into an oval (border-radius:50% applied
         // to a box that didn't end up square).
-        return `<div style="margin:0;width:${w};height:${h};max-width:100%;border-radius:${br};overflow:hidden;mso-margin-top-alt:0;mso-margin-bottom-alt:0;${bdr}"><img src="${src}" width="${wNum}" height="${hNum}" style="width:100%;height:100%;object-fit:${s.objectFit||"cover"};display:block;" referrerpolicy="no-referrer" /></div>`;
+        // aspect-ratio keeps the box proportional if max-width ever has to
+        // shrink it below its intended width (e.g. in the Dashboard's
+        // scaled-down preview cards, where a column can render narrower than
+        // the photo's set size) -- without this, only the width would
+        // shrink while height stayed fixed, squishing a circle into an oval.
+        return `<div style="margin:0;width:${w};height:${h};max-width:100%;aspect-ratio:${wNum}/${hNum};border-radius:${br};overflow:hidden;mso-margin-top-alt:0;mso-margin-bottom-alt:0;${bdr}"><img src="${src}" width="${wNum}" height="${hNum}" style="width:100%;height:100%;object-fit:${s.objectFit||"cover"};display:block;" referrerpolicy="no-referrer" /></div>`;
       }
       case "logo": {
         const src = s.croppedSrc || profile.logoUrl || "";
