@@ -4174,23 +4174,59 @@ function ColDeleteControls({ row, onDeleteColumn }) {
 // its own component (rather than inline JSX in the sidebar) since it needs
 // its own local state for the file/label/category fields before handing off
 // to the parent's upload handler.
-function BannerUploadForm({ uploading, error, onCancel, onUpload }) {
-  const [file, setFile] = useState(null);
-  const [label, setLabel] = useState("");
-  const [category, setCategory] = useState("");
+// Upload form for one or many Compass banners at once (admin only). Always
+// collects a list of {file, label, category} entries -- a single file is
+// just a list of one -- so there's one code path for both the everyday
+// "add one new banner" case and an initial bulk migration of many at once,
+// rather than maintaining two separate forms.
+function BannerUploadForm({ uploading, progress, error, onCancel, onUpload }) {
+  const [entries, setEntries] = useState([]); // [{file, label, category}]
+
+  function titleCaseFromFilename(filename) {
+    const base = filename.replace(/\.[^.]+$/, "");
+    return base.replace(/[-_]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  function handleFiles(fileList) {
+    const files = Array.from(fileList || []);
+    setEntries(files.map(file => ({ file, label: titleCaseFromFilename(file.name), category: "" })));
+  }
+
+  function updateEntry(i, field, value) {
+    setEntries(prev => prev.map((e, idx) => idx === i ? { ...e, [field]: value } : e));
+  }
 
   return (
     <div style={{ border:"1px solid #d1d5db", borderRadius:8, padding:10, background:"#fafafa" }}>
-      <input type="file" accept="image/*"
-        onChange={e => setFile(e.target.files?.[0] || null)}
+      <input type="file" accept="image/*" multiple
+        onChange={e => handleFiles(e.target.files)}
         style={{ width:"100%", fontSize:11, marginBottom:8 }} />
-      <input placeholder="Label (e.g. Pre-market Your Home)" value={label}
-        onChange={e => setLabel(e.target.value)}
-        style={{ width:"100%", boxSizing:"border-box", padding:"6px 8px", fontSize:12, border:"1px solid #d1d5db", borderRadius:6, marginBottom:6, fontFamily:"inherit" }} />
-      <input placeholder="Category (e.g. Seller Tools)" value={category}
-        onChange={e => setCategory(e.target.value)}
-        style={{ width:"100%", boxSizing:"border-box", padding:"6px 8px", fontSize:12, border:"1px solid #d1d5db", borderRadius:6, marginBottom:8, fontFamily:"inherit" }} />
 
+      {entries.length > 1 && (
+        <div style={{ fontSize:11, color:"#6b7280", marginBottom:6 }}>
+          {entries.length} files selected -- each needs its own label and category below.
+        </div>
+      )}
+
+      <div style={{ maxHeight:260, overflowY:"auto", marginBottom:8 }}>
+        {entries.map((entry, i) => (
+          <div key={i} style={{ marginBottom:8, paddingBottom:8, borderBottom: i < entries.length-1 ? "1px solid #e5e7eb" : "none" }}>
+            <div style={{ fontSize:10, color:"#9ca3af", marginBottom:3, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{entry.file.name}</div>
+            <input placeholder="Label (e.g. Pre-market Your Home)" value={entry.label}
+              onChange={e => updateEntry(i, "label", e.target.value)}
+              style={{ width:"100%", boxSizing:"border-box", padding:"6px 8px", fontSize:12, border:"1px solid #d1d5db", borderRadius:6, marginBottom:4, fontFamily:"inherit" }} />
+            <input placeholder="Category (e.g. Seller Tools)" value={entry.category}
+              onChange={e => updateEntry(i, "category", e.target.value)}
+              style={{ width:"100%", boxSizing:"border-box", padding:"6px 8px", fontSize:12, border:"1px solid #d1d5db", borderRadius:6, fontFamily:"inherit" }} />
+          </div>
+        ))}
+      </div>
+
+      {uploading && progress && (
+        <div style={{ fontSize:12, color:"#0051d5", marginBottom:8, fontWeight:600 }}>
+          Uploading {progress.done} of {progress.total}…
+        </div>
+      )}
       {error && (
         <div style={{ fontSize:11, color:"#ef4444", marginBottom:8 }}>{error}</div>
       )}
@@ -4200,9 +4236,9 @@ function BannerUploadForm({ uploading, error, onCancel, onUpload }) {
           style={{ flex:1, padding:"6px", fontSize:12, fontWeight:600, background:"#fff", border:"1px solid #d1d5db", borderRadius:6, cursor:"pointer", fontFamily:"inherit" }}>
           Cancel
         </button>
-        <button onClick={() => onUpload(file, label, category)} disabled={uploading}
-          style={{ flex:1, padding:"6px", fontSize:12, fontWeight:700, color:"#fff", background: uploading ? "#93c5fd" : "#0051d5", border:"none", borderRadius:6, cursor: uploading ? "default" : "pointer", fontFamily:"inherit" }}>
-          {uploading ? "Uploading…" : "Upload"}
+        <button onClick={() => onUpload(entries)} disabled={uploading || entries.length === 0}
+          style={{ flex:1, padding:"6px", fontSize:12, fontWeight:700, color:"#fff", background: (uploading || entries.length===0) ? "#93c5fd" : "#0051d5", border:"none", borderRadius:6, cursor: uploading ? "default" : "pointer", fontFamily:"inherit" }}>
+          {uploading ? "Uploading…" : entries.length > 1 ? `Upload ${entries.length} Banners` : "Upload"}
         </button>
       </div>
     </div>
@@ -5155,68 +5191,92 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
   const [uploadStatus, setUploadStatus] = useState(""); // "", "uploading", "error"
   const [uploadError, setUploadError] = useState("");
 
-  async function handleBannerUpload(file, label, category) {
-    if (!file || !label || !category) {
-      setUploadStatus("error");
-      setUploadError("Please choose a file and fill in both fields.");
-      return;
+  // Does the actual work for ONE file: get a signed upload URL, PUT the
+  // file to R2, read its real dimensions, write the Firestore record.
+  // Doesn't touch uploadStatus/showUploadForm itself, since both the
+  // single-upload and bulk-upload paths need to manage that differently
+  // (bulk shouldn't close the form after the first file succeeds).
+  async function uploadOneBanner(file, label, category, secret) {
+    const res = await fetch("/api/upload-url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ adminSecret: secret, filename: file.name, contentType: file.type }),
+    });
+    if (!res.ok) {
+      if (res.status === 401) {
+        setUploadSecret("");
+        try { sessionStorage.removeItem("ss_upload_secret"); } catch {}
+      }
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || "Could not get upload permission.");
     }
+    const { uploadUrl, publicUrl } = await res.json();
+
+    const putRes = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
+    if (!putRes.ok) throw new Error("Upload to storage failed.");
+
+    const dims = await new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+      img.onerror = () => resolve({ w: 600, h: 200 });
+      img.src = publicUrl;
+    });
+
+    await addDoc(collection(db, "banners"), {
+      label, category, url: publicUrl,
+      w: dims.w, h: dims.h,
+      animated: file.type === "image/gif",
+      uploadedAt: serverTimestamp(),
+    });
+  }
+
+  function getUploadSecret() {
     let secret = uploadSecret;
     if (!secret) {
       secret = window.prompt("Enter the banner upload passphrase:") || "";
-      if (!secret) return;
+      if (!secret) return null;
       setUploadSecret(secret);
       try { sessionStorage.setItem("ss_upload_secret", secret); } catch {}
     }
+    return secret;
+  }
+
+
+  // Bulk upload -- for the initial migration (or any time several banners
+  // need to go in at once) rather than repeating the single-upload flow one
+  // at a time. Uploads sequentially (not in parallel) so one shared upload
+  // secret prompt covers the whole batch, and so progress can be reported
+  // as "3 of 11" rather than everything happening invisibly at once.
+  const [bulkProgress, setBulkProgress] = useState(null); // { done, total } while running
+
+  async function handleBulkBannerUpload(entries) {
+    const incomplete = entries.filter(e => !e.file || !e.label || !e.category);
+    if (incomplete.length > 0) {
+      setUploadStatus("error");
+      setUploadError(`${incomplete.length} of ${entries.length} entries are missing a label or category.`);
+      return;
+    }
+    const secret = getUploadSecret();
+    if (!secret) return;
     setUploadStatus("uploading");
     setUploadError("");
-    try {
-      // Step 1: ask the serverless function for a signed upload URL.
-      const res = await fetch("/api/upload-url", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ adminSecret: secret, filename: file.name, contentType: file.type }),
-      });
-      if (!res.ok) {
-        // Wrong secret specifically -- clear the cached one so the next
-        // attempt re-prompts instead of silently failing again with the
-        // same bad value.
-        if (res.status === 401) {
-          setUploadSecret("");
-          try { sessionStorage.removeItem("ss_upload_secret"); } catch {}
-        }
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || "Could not get upload permission.");
+    setBulkProgress({ done: 0, total: entries.length });
+    const failures = [];
+    for (let i = 0; i < entries.length; i++) {
+      try {
+        await uploadOneBanner(entries[i].file, entries[i].label, entries[i].category, secret);
+      } catch (err) {
+        failures.push(`${entries[i].label || entries[i].file.name}: ${err.message}`);
       }
-      const { uploadUrl, publicUrl } = await res.json();
-
-      // Step 2: upload the actual file bytes directly to R2 using that
-      // signed URL -- the file never passes through Vercel at all.
-      const putRes = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
-      if (!putRes.ok) throw new Error("Upload to storage failed.");
-
-      // Step 3: get real pixel dimensions (needed for correct sizing when
-      // the banner is later dragged into a signature) before writing the
-      // Firestore record.
-      const dims = await new Promise((resolve) => {
-        const img = new Image();
-        img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
-        img.onerror = () => resolve({ w: 600, h: 200 }); // fallback if dimensions can't be read
-        img.src = publicUrl;
-      });
-
-      await addDoc(collection(db, "banners"), {
-        label, category, url: publicUrl,
-        w: dims.w, h: dims.h,
-        animated: file.type === "image/gif",
-        uploadedAt: serverTimestamp(),
-      });
-
+      setBulkProgress({ done: i + 1, total: entries.length });
+    }
+    setBulkProgress(null);
+    if (failures.length === 0) {
       setUploadStatus("");
       setShowUploadForm(false);
-    } catch (err) {
+    } else {
       setUploadStatus("error");
-      setUploadError(err.message || "Something went wrong during upload.");
+      setUploadError(`${entries.length - failures.length} of ${entries.length} uploaded. Failed: ${failures.join("; ")}`);
     }
   }
   const [rowDragOverId, setRowDragOverId] = useState(null);
@@ -5555,13 +5615,23 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                             onDragStart={e=>{ sidebarDragActiveRef.current = true; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("sidebar-item", JSON.stringify({type:"image", compassBannerId:banner.id})); }}
                             onDragEnd={handleSidebarDragEnd}
                             onClick={() => { if (sidebarDragActiveRef.current) return; onAddBanner(banner.url, banner.w, banner.h); }}
-                            style={{ border:"1px solid #e5e7eb", borderRadius:6, overflow:"hidden", cursor:"grab", background:"#111" }}
+                            style={{ position:"relative", border:"1px solid #e5e7eb", borderRadius:6, overflow:"hidden", cursor:"grab", background:"#111" }}
                             onMouseEnter={e=>{e.currentTarget.style.borderColor="#0051d5";e.currentTarget.style.boxShadow="0 0 0 2px #0051d520";}}
                             onMouseLeave={e=>{e.currentTarget.style.borderColor="#e5e7eb";e.currentTarget.style.boxShadow="none";}}>
                             <img src={banner.url} alt={banner.label} style={{ width:"100%", display:"block", height:52, objectFit:"contain", background:"#000", maxHeight:52 }} />
                             <div style={{ padding:"3px 7px", fontSize:11, color:"#6b7280", fontWeight:600, background:"#fff" }}>
                               {banner.label}{banner.animated ? " (GIF)" : ""}
                             </div>
+                            {adminMode && (
+                              <button
+                                onClick={(e)=>{ e.stopPropagation(); if(window.confirm(`Remove "${banner.label}"? This can't be undone.`)) deleteDoc(doc(db,"banners",banner.id)).catch(err=>console.error("Failed to delete banner:",err)); }}
+                                draggable={false}
+                                onDragStart={e=>e.preventDefault()}
+                                title="Remove banner"
+                                style={{ position:"absolute", top:4, right:4, width:20, height:20, borderRadius:"50%", border:"none", background:"rgba(0,0,0,0.65)", color:"#fff", fontSize:13, lineHeight:1, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", padding:0 }}>
+                                &times;
+                              </button>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -5585,9 +5655,10 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                     ) : (
                       <BannerUploadForm
                         uploading={uploadStatus === "uploading"}
+                        progress={bulkProgress}
                         error={uploadStatus === "error" ? uploadError : ""}
                         onCancel={()=>{ setShowUploadForm(false); setUploadStatus(""); setUploadError(""); }}
-                        onUpload={handleBannerUpload}
+                        onUpload={handleBulkBannerUpload}
                       />
                     )}
                   </div>
