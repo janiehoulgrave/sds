@@ -2149,14 +2149,14 @@ function renderElementInner(el, profile) {
             socialStyle === "black"   ? (blackImgs[soc.key]   || blackImgs.website)   :
                                         (whiteImgs[soc.key]   || whiteImgs.website)
           );
-          return `<a href="${soc.url}" target="_blank" style="display:inline-block;text-decoration:none;margin-right:${iconGap}px;"><img src="${src}" width="${iconSize}" height="${iconSize}" style="display:block;border:none;" /></a>`;
+          return `<a href="${soc.url}" target="_blank" style="display:inline-block;line-height:0;text-decoration:none;margin-right:${iconGap}px;"><img src="${src}" width="${iconSize}" height="${iconSize}" style="display:block;border:none;" /></a>`;
         }).join("");
         const customLinks = (() => { try { return JSON.parse(s.customLinks || "[]"); } catch { return []; } })();
         const customBtns = customLinks.filter(l=>l.url&&l.url.trim()).map(l => {
-          if (l.iconUrl) return `<a href="${l.url}" target="_blank" title="${l.label||""}" style="display:inline-block;text-decoration:none;margin-right:${iconGap}px;"><img src="${l.iconUrl}" width="${iconSize}" height="${iconSize}" style="display:block;border:none;" /></a>`;
+          if (l.iconUrl) return `<a href="${l.url}" target="_blank" title="${l.label||""}" style="display:inline-block;line-height:0;text-decoration:none;margin-right:${iconGap}px;"><img src="${l.iconUrl}" width="${iconSize}" height="${iconSize}" style="display:block;border:none;" /></a>`;
           return `<a href="${l.url}" target="_blank" style="display:inline-flex;align-items:center;justify-content:center;width:${iconSize}px;height:${iconSize}px;border-radius:50%;background:#374151;color:#fff;text-decoration:none;margin-right:${iconGap}px;font-size:10px;font-family:sans-serif;">${(l.label||"?").slice(0,2).toUpperCase()}</a>`;
         }).join("");
-        return `<div style="padding-top:${s.paddingTop||'0px'};margin-top:0;margin-bottom:${s.marginBottom||'0px'};mso-padding-alt:${s.paddingTop||'0px'} 0 0 0;mso-margin-top-alt:0;mso-margin-bottom-alt:${s.marginBottom||'0px'};">${btns}${customBtns}</div>`;
+        return `<div style="line-height:0;padding-top:${s.paddingTop||'0px'};margin-top:0;margin-bottom:${s.marginBottom||'0px'};mso-padding-alt:${s.paddingTop||'0px'} 0 0 0;mso-margin-top-alt:0;mso-margin-bottom-alt:${s.marginBottom||'0px'};">${btns}${customBtns}</div>`;
       }
       default: return `<div style="${baseStyle}">${interpolate("{{"+el.subtype+"}}", profile)}</div>`;
     }
