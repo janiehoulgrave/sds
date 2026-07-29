@@ -1958,7 +1958,7 @@ function renderElementInner(el, profile) {
   // photos, badges, buttons, dividers) rather than just text-like ones.
   const bgCss = s.backgroundColor ? `background:${s.backgroundColor};` : "";
   const borderCss = s.borderWidth ? `border:${s.borderWidth} ${s.borderStyle||"solid"} ${s.borderColor||"#e5e7eb"};` : "";
-  const baseStyle = `font-family:${ff};font-size:${fSize};color:${fColor};font-weight:${fw};${s.textAlign?'text-align:'+s.textAlign+';':''}${s.textTransform?'text-transform:'+s.textTransform+';':''}${s.letterSpacing?'letter-spacing:'+s.letterSpacing+';':''}${s.lineHeight?'line-height:'+s.lineHeight+';':''}${s.fontStyle?'font-style:'+s.fontStyle+';':''}margin-top:${s.marginTop||'2px'};margin-bottom:${s.marginBottom||'2px'};mso-margin-top-alt:${s.marginTop||'2px'};mso-margin-bottom-alt:${s.marginBottom||'2px'};${bgCss}${borderCss}`;
+  const baseStyle = `font-family:${ff};font-size:${fSize};color:${fColor};font-weight:${fw};${s.textAlign?'text-align:'+s.textAlign+';':''}${s.textTransform?'text-transform:'+s.textTransform+';':''}${s.letterSpacing?'letter-spacing:'+s.letterSpacing+';':''}${s.lineHeight?'line-height:'+s.lineHeight+';':''}${s.fontStyle?'font-style:'+s.fontStyle+';':''}margin-top:0;margin-bottom:${s.marginBottom||'2px'};mso-margin-top-alt:0;mso-margin-bottom-alt:${s.marginBottom||'2px'};${bgCss}${borderCss}`;
 
   if (el.type === "text") {
     return `<div style="${baseStyle}">${interpolate(el.content || "", profile)}</div>`;
@@ -3328,7 +3328,7 @@ export default function App() {
                   Upload
                   <input type="file" accept="image/*" style={{ display:"none" }} onChange={e=>{
                     const f=e.target.files?.[0]; if(!f) return;
-                    normalizeImageFile(f, (dataUrl)=>saveProfile({...profile, photoUrl:dataUrl}), 480, {quality:0.88});
+                    normalizeImageFile(f, (dataUrl)=>{ saveProfile({...profile, photoUrl:dataUrl}); addToMediaLibrary(dataUrl, f.name); }, 480, {quality:0.88, square:true});
                   }} />
                 </label>
               </div>
@@ -3341,7 +3341,7 @@ export default function App() {
                   Upload
                   <input type="file" accept="image/*" style={{ display:"none" }} onChange={e=>{
                     const f=e.target.files?.[0]; if(!f) return;
-                    normalizeImageFile(f, (dataUrl)=>saveProfile({...profile, logoUrl:dataUrl}), 360, {png:true});
+                    normalizeImageFile(f, (dataUrl)=>{ saveProfile({...profile, logoUrl:dataUrl}); addToMediaLibrary(dataUrl, f.name); }, 360, {png:true});
                   }} />
                 </label>
               </div>
@@ -3417,7 +3417,7 @@ export default function App() {
             adminMode={adminMode} isEditingTemplate={!!editingTemplateId} onOpenTemplateSaveModal={openTemplateSaveModal}
           />
         )}
-        {screen === "profile" && <ProfileForm profile={profile} onSave={p => { saveProfile(p); showToast("Profile saved!"); }} onNavigate={navigate} />}
+        {screen === "profile" && <ProfileForm profile={profile} onSave={p => { saveProfile(p); showToast("Profile saved!"); }} onNavigate={navigate} onAddMedia={addToMediaLibrary} />}
         {screen === "export" && activeSig && <ExportScreen sig={activeSig} profile={profile} onNavigate={navigate} onSave={saveCurrent} />}
       </main>
 
@@ -4771,27 +4771,49 @@ function normalizeImageFile(file, cb, maxDim, opts) {
   // for logos/badges/icons that need real transparency.
   const usePng = opts && opts.png;
   const quality = (opts && opts.quality) || 0.72;
+  const square = opts && opts.square;
   const reader = new FileReader();
   reader.onload = e => {
     const img = new Image();
     img.onload = () => {
-      let w = img.width, h = img.height;
-      if (w > cap || h > cap) {
-        if (w > h) { h = Math.round(h * cap / w); w = cap; }
-        else { w = Math.round(w * cap / h); h = cap; }
-      }
       const canvas = document.createElement("canvas");
-      canvas.width = w; canvas.height = h;
       const ctx = canvas.getContext("2d");
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = "high";
-      if (!usePng) {
-        // JPEG has no transparency channel -- flatten onto white first so a
-        // transparent PNG source doesn't turn black.
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(0, 0, w, h);
+      if (square) {
+        // Center-crop the SOURCE to a square before any resizing -- this is
+        // done at the pixel level here, once, rather than leaving a
+        // non-square photo to be cropped by CSS (object-fit:cover) every
+        // time it's displayed. object-fit is a modern CSS property that
+        // email clients (Gmail's paste rendering in particular) frequently
+        // don't honor, silently falling back to stretching the image to
+        // fill its box instead of cropping it -- which is exactly what
+        // turns a rectangular headshot into a visibly warped one once
+        // squeezed into a square/circular frame. A source image that's
+        // already square needs no cropping at display time at all, so
+        // there's nothing left for an email client to get wrong.
+        const side = Math.min(img.width, img.height);
+        const sx = (img.width - side) / 2;
+        const sy = (img.height - side) / 2;
+        const outSide = Math.min(side, cap);
+        canvas.width = outSide; canvas.height = outSide;
+        if (!usePng) { ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, outSide, outSide); }
+        ctx.drawImage(img, sx, sy, side, side, 0, 0, outSide, outSide);
+      } else {
+        let w = img.width, h = img.height;
+        if (w > cap || h > cap) {
+          if (w > h) { h = Math.round(h * cap / w); w = cap; }
+          else { w = Math.round(w * cap / h); h = cap; }
+        }
+        canvas.width = w; canvas.height = h;
+        if (!usePng) {
+          // JPEG has no transparency channel -- flatten onto white first so a
+          // transparent PNG source doesn't turn black.
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, w, h);
+        }
+        ctx.drawImage(img, 0, 0, w, h);
       }
-      ctx.drawImage(img, 0, 0, w, h);
       cb(usePng ? canvas.toDataURL("image/png") : canvas.toDataURL("image/jpeg", quality));
     };
     img.src = e.target.result;
@@ -6131,7 +6153,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                     <input type="file" accept="image/*" style={{ display:"none" }} onChange={e=>{
                       const f=e.target.files?.[0]; if(!f) return;
                       const isPhoto = selectedEl.subtype==="photo";
-                      normalizeImageFile(f, (dataUrl)=>{ onAddMedia(dataUrl, f.name); onUpdateProfileField(isPhoto?"photoUrl":"logoUrl", dataUrl); }, isPhoto?480:360, isPhoto?{quality:0.88}:{png:true});
+                      normalizeImageFile(f, (dataUrl)=>{ onAddMedia(dataUrl, f.name); onUpdateProfileField(isPhoto?"photoUrl":"logoUrl", dataUrl); }, isPhoto?480:360, isPhoto?{quality:0.88, square:true}:{png:true});
                     }} />
                   </label>
                   {selectedEl.subtype==="photo" && profile.photoUrl && (
@@ -6696,7 +6718,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
 }
 
 // --- Profile Form ---
-function ProfileForm({ profile, onSave, onNavigate }) {
+function ProfileForm({ profile, onSave, onNavigate, onAddMedia }) {
   const [draft, setDraft] = useState({ ...profile });
   const inputStyle = { width:"100%", border:"1px solid #d1d5db", borderRadius:6, padding:"8px 10px", fontSize:15, fontFamily:"inherit", outline:"none", background:"#f9fafb" };
   const labelStyle = { fontSize:15, fontWeight:700, textTransform:"uppercase", letterSpacing:0.6, color:"#6b7280", marginBottom:5, display:"block" };
@@ -6713,7 +6735,10 @@ function ProfileForm({ profile, onSave, onNavigate }) {
     // soft/blurry. Still comfortably small enough to fit in a Firestore
     // document alongside the rest of the profile.
     const isPhoto = field === "photoUrl";
-    normalizeImageFile(file, (dataUrl)=>{ setDraft(prev => ({...prev, [field]: dataUrl})); }, isPhoto?480:360, isPhoto?{quality:0.88}:{png:true});
+    normalizeImageFile(file, (dataUrl)=>{
+      setDraft(prev => ({...prev, [field]: dataUrl}));
+      if (onAddMedia) onAddMedia(dataUrl, file.name);
+    }, isPhoto?480:360, isPhoto?{quality:0.88, square:true}:{png:true});
   }
 
   const PHOTO_PH = PROFILE_PHOTO_PH;
