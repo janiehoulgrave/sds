@@ -1958,7 +1958,7 @@ function renderElementInner(el, profile) {
   // photos, badges, buttons, dividers) rather than just text-like ones.
   const bgCss = s.backgroundColor ? `background:${s.backgroundColor};` : "";
   const borderCss = s.borderWidth ? `border:${s.borderWidth} ${s.borderStyle||"solid"} ${s.borderColor||"#e5e7eb"};` : "";
-  const baseStyle = `font-family:${ff};font-size:${fSize};color:${fColor};font-weight:${fw};${s.textAlign?'text-align:'+s.textAlign+';':''}${s.textTransform?'text-transform:'+s.textTransform+';':''}${s.letterSpacing?'letter-spacing:'+s.letterSpacing+';':''}${s.lineHeight?'line-height:'+s.lineHeight+';':''}${s.fontStyle?'font-style:'+s.fontStyle+';':''}margin-top:0;margin-bottom:${s.marginBottom||'2px'};mso-margin-top-alt:0;mso-margin-bottom-alt:${s.marginBottom||'2px'};${bgCss}${borderCss}`;
+  const baseStyle = `font-family:${ff};font-size:${fSize};color:${fColor};font-weight:${fw};${s.textAlign?'text-align:'+s.textAlign+';':''}${s.textTransform?'text-transform:'+s.textTransform+';':''}${s.letterSpacing?'letter-spacing:'+s.letterSpacing+';':''}line-height:${s.lineHeight||'1.3'};${s.fontStyle?'font-style:'+s.fontStyle+';':''}margin-top:0;margin-bottom:${s.marginBottom||'2px'};mso-margin-top-alt:0;mso-margin-bottom-alt:${s.marginBottom||'2px'};${bgCss}${borderCss}`;
 
   if (el.type === "text") {
     return `<div style="${baseStyle}">${interpolate(el.content || "", profile)}</div>`;
