@@ -173,7 +173,7 @@ function makePresets() {
           "style": {
             "width": "30%",
             "paddingRight": "20px",
-            "verticalAlign": "middle"
+            "verticalAlign": "top"
           }
         },
         {
@@ -247,7 +247,7 @@ function makePresets() {
           ],
           "style": {
             "width": "70%",
-            "verticalAlign": "middle"
+            "verticalAlign": "top"
           }
         }
       ]
