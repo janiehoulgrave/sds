@@ -2198,20 +2198,25 @@ function generateSigHTML(sig, profile) {
     html += `<tr><td style="${rStyle};padding:${rs.paddingTop||"8px"} 0 ${rs.paddingBottom||"8px"} 0;"><table cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;table-layout:fixed;"><tr>`;
     row.columns.forEach(col => {
       const cs = col.style || {};
-      const w = cs.width || `${Math.floor(100/row.columns.length)}%`;
-      // If this column holds a photo, floor its width in real pixels so the
-      // fixed table layout can never compress it below the photo's actual
-      // set size -- without this, a percentage-based column can render
-      // narrower than the photo whenever the table itself is narrower than
-      // its full design width (which happens in the Dashboard's scaled-down
-      // preview cards, and in how Gmail/Outlook re-render pasted HTML),
-      // squishing a circular photo into an oval.
+      // If this column holds a photo, give it an explicit pixel width
+      // (photo size + its own padding) instead of a percentage -- min-width
+      // was the first attempt at this, but table-layout:fixed frequently
+      // does NOT honor min-width on cells at all (confirmed via direct
+      // browser measurement: a cell with min-width:166px still rendered at
+      // ~146px in practice). An explicit pixel width, however, IS reliably
+      // honored under fixed layout, since it's the table's actual primary
+      // sizing mechanism rather than a secondary override layered on top
+      // of a percentage. This is what was letting a circular photo render
+      // as an oval whenever the table itself was narrower than its full
+      // design width (Dashboard preview cards, Gmail/Outlook re-rendering).
       const photoEl = col.elements.find(el => el.type === "dynamic" && el.subtype === "photo");
-      const photoMinW = photoEl ? (parseInt(photoEl.style?.width) || 90) : null;
+      const photoSize = photoEl ? (parseInt(photoEl.style?.width) || 90) : null;
+      const padL = cs.paddingLeft ? parseInt(cs.paddingLeft) || 0 : 0;
+      const padR = cs.paddingRight ? parseInt(cs.paddingRight) || 0 : 0;
+      const w = photoSize ? `${photoSize + padL + padR}px` : (cs.width || `${Math.floor(100/row.columns.length)}%`);
       const cStyle = [
         `vertical-align:${cs.verticalAlign||"top"}`,
         `width:${w}`,
-        photoMinW ? `min-width:${photoMinW}px` : "",
         cs.paddingLeft ? `padding-left:${cs.paddingLeft}` : "",
         cs.paddingRight ? `padding-right:${cs.paddingRight}` : "",
         cs.paddingTop ? `padding-top:${cs.paddingTop}` : "",
