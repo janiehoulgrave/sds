@@ -1961,7 +1961,7 @@ function renderElementInner(el, profile) {
   const fSizeNum = parseInt(fSize) || 13;
   const lineHeightPx = s.lineHeight
     ? (String(s.lineHeight).includes("px") ? s.lineHeight : `${Math.round(fSizeNum * parseFloat(s.lineHeight))}px`)
-    : `${Math.round(fSizeNum * 1.3)}px`;
+    : `${Math.round(fSizeNum * 1.2)}px`;
   const baseStyle = `font-family:${ff};font-size:${fSize};color:${fColor};font-weight:${fw};${s.textAlign?'text-align:'+s.textAlign+';':''}${s.textTransform?'text-transform:'+s.textTransform+';':''}${s.letterSpacing?'letter-spacing:'+s.letterSpacing+';':''}line-height:${lineHeightPx};${s.fontStyle?'font-style:'+s.fontStyle+';':''}margin-top:0;margin-bottom:${s.marginBottom||'2px'};mso-margin-top-alt:0;mso-margin-bottom-alt:${s.marginBottom||'2px'};${bgCss}${borderCss}`;
 
   if (el.type === "text") {
