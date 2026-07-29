@@ -1999,7 +1999,7 @@ function renderElementInner(el, profile) {
       return `<div style="width:${size};height:${size};border:1.5px dashed #d1d5db;border-radius:6px;display:inline-block;text-align:center;line-height:${size};font-size:9px;color:#9ca3af;font-family:sans-serif;${mr}">Badge ${i+1}</div>`;
     });
     const align = s.textAlign || "left";
-    return `<div style="text-align:${align};margin:4px 0;mso-margin-top-alt:4px;mso-margin-bottom-alt:4px;">${cells.join("")}</div>`;
+    return `<div style="text-align:${align};margin-top:0;margin-bottom:4px;mso-margin-top-alt:0;mso-margin-bottom-alt:4px;">${cells.join("")}</div>`;
   }
   if (el.type === "divider") {
     return `<div style="border-top:${s.borderWidth||"1px"} solid ${s.borderColor||"#e5e7eb"};margin:${s.marginTop||"6px"} 0 ${s.marginBottom||"6px"};width:${s.width||"100%"};"></div>`;
@@ -2008,7 +2008,7 @@ function renderElementInner(el, profile) {
     return `<div style="height:${s.spacerHeight||"12px"};"></div>`;
   }
   if (el.type === "button") {
-    return `<div style="margin:4px 0;"><a href="${el.linkUrl||"#"}" style="display:inline-block;background:${s.backgroundColor||"#0051d5"};color:${s.color||"#fff"};padding:6px 14px;border-radius:${s.borderRadius||"4px"};font-size:${fSize};font-weight:bold;text-decoration:none;font-family:${ff};">${el.content||"Button"}</a></div>`;
+    return `<div style="margin-top:0;margin-bottom:4px;"><a href="${el.linkUrl||"#"}" style="display:inline-block;background:${s.backgroundColor||"#0051d5"};color:${s.color||"#fff"};padding:6px 14px;border-radius:${s.borderRadius||"4px"};font-size:${fSize};font-weight:bold;text-decoration:none;font-family:${ff};">${el.content||"Button"}</a></div>`;
   }
   if (el.type === "dynamic") {
     switch (el.subtype) {
@@ -2058,13 +2058,13 @@ function renderElementInner(el, profile) {
         const wNum = parseInt(w) || 90;
         const hNum = parseInt(h) || (wNum * 0.4) || 36; // rough fallback if height is "auto"
         const fit = s.objectFit || "contain";
-        if (!src) return `<div style="width:${w};height:${h};display:flex;align-items:center;justify-content:center;border:1px dashed #d1d5db;border-radius:4px;font-family:sans-serif;font-size:10px;color:#9ca3af;margin:2px 0;mso-margin-top-alt:0;mso-margin-bottom-alt:0;">Logo</div>`;
-        return `<div style="margin:2px 0;mso-margin-top-alt:0;mso-margin-bottom-alt:0;"><img src="${src}" width="${wNum}" ${h!=="auto"?`height="${hNum}"`:""} style="width:${w};height:${h};object-fit:${fit};display:block;" /></div>`;
+        if (!src) return `<div style="width:${w};height:${h};display:flex;align-items:center;justify-content:center;border:1px dashed #d1d5db;border-radius:4px;font-family:sans-serif;font-size:10px;color:#9ca3af;margin-top:0;margin-bottom:2px;mso-margin-top-alt:0;mso-margin-bottom-alt:2px;">Logo</div>`;
+        return `<div style="margin-top:0;margin-bottom:2px;mso-margin-top-alt:0;mso-margin-bottom-alt:2px;"><img src="${src}" width="${wNum}" ${h!=="auto"?`height="${hNum}"`:""} style="width:${w};height:${h};object-fit:${fit};display:block;" /></div>`;
       }
       case "personalLogo": {
         const src = profile.personalLogoUrl || "";
         if (!src) return "";
-        return `<div style="margin:2px 0;"><img src="${src}" style="width:${s.width||"100px"};height:${s.height||"24px"};object-fit:contain;display:block;" /></div>`;
+        return `<div style="margin-top:0;margin-bottom:2px;"><img src="${src}" style="width:${s.width||"100px"};height:${s.height||"24px"};object-fit:contain;display:block;" /></div>`;
       }
       // Convert ^text^ to superscript HTML, and (R) to ® -- applySup is
       // defined at the top of this function now, see comment there.
@@ -2156,7 +2156,7 @@ function renderElementInner(el, profile) {
           if (l.iconUrl) return `<a href="${l.url}" target="_blank" title="${l.label||""}" style="display:inline-block;text-decoration:none;margin-right:${iconGap}px;"><img src="${l.iconUrl}" width="${iconSize}" height="${iconSize}" style="display:block;border:none;" /></a>`;
           return `<a href="${l.url}" target="_blank" style="display:inline-flex;align-items:center;justify-content:center;width:${iconSize}px;height:${iconSize}px;border-radius:50%;background:#374151;color:#fff;text-decoration:none;margin-right:${iconGap}px;font-size:10px;font-family:sans-serif;">${(l.label||"?").slice(0,2).toUpperCase()}</a>`;
         }).join("");
-        return `<div style="margin:4px 0;mso-margin-top-alt:4px;mso-margin-bottom-alt:4px;">${btns}${customBtns}</div>`;
+        return `<div style="padding-top:${s.paddingTop||'0px'};margin-top:0;margin-bottom:${s.marginBottom||'0px'};mso-padding-alt:${s.paddingTop||'0px'} 0 0 0;mso-margin-top-alt:0;mso-margin-bottom-alt:${s.marginBottom||'0px'};">${btns}${customBtns}</div>`;
       }
       default: return `<div style="${baseStyle}">${interpolate("{{"+el.subtype+"}}", profile)}</div>`;
     }
