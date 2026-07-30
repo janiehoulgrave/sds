@@ -2382,9 +2382,30 @@ export default function App() {
           await Promise.all(legacySigs.map(sig => setDoc(doc(sigsCol, sig.id), sig)));
         }
 
+        // Media library -- same pattern as signatures: load from the
+        // users/{uid}/media subcollection, and if it's empty, migrate any
+        // legacy ss_media localStorage from before media was account-backed.
+        // This is what makes an agent's uploads follow them across devices and
+        // survive a browser cache clear, matching profile and signatures.
+        const mediaCol = collection(db, "users", uid, "media");
+        const mediaSnap = await getDocs(mediaCol);
+        let loadedMedia;
+        if (!mediaSnap.empty) {
+          loadedMedia = mediaSnap.docs.map(d => d.data());
+        } else {
+          let legacyMedia = [];
+          try {
+            const s = localStorage.getItem("ss_media");
+            if (s) legacyMedia = JSON.parse(s);
+          } catch {}
+          loadedMedia = legacyMedia;
+          await Promise.all(legacyMedia.map(m => setDoc(doc(mediaCol, m.id), m)));
+        }
+
         if (!cancelled) {
           setProfile(loadedProfile);
           setSignatures(loadedSigs);
+          setMediaLibrary(loadedMedia);
           setShowProfileSetup(!loadedProfile.name || !loadedProfile.email);
           setAccountLoading(false);
         }
@@ -2747,6 +2768,13 @@ export default function App() {
       try { localStorage.setItem("ss_media", JSON.stringify(updated)); } catch {}
       return updated;
     });
+    // Persist to the account so it follows the agent across devices. localStorage
+    // above is just a fast-paint cache; Firestore is the source of truth.
+    const uid = auth.currentUser?.uid;
+    if (uid) {
+      setDoc(doc(db, "users", uid, "media", item.id), item)
+        .catch(err => console.error("Failed to save media item to Firestore:", err));
+    }
     return item;
   }
 
@@ -2768,6 +2796,12 @@ export default function App() {
       try { localStorage.setItem("ss_media", JSON.stringify(updated)); } catch {}
       return updated;
     });
+    // Remove from the account too so the deletion follows across devices.
+    const uid = auth.currentUser?.uid;
+    if (uid) {
+      deleteDoc(doc(db, "users", uid, "media", id))
+        .catch(err => console.error("Failed to delete media item from Firestore:", err));
+    }
   }
 
   function showToast(msg) {
