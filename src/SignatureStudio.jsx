@@ -2734,6 +2734,26 @@ export default function App() {
     return item;
   }
 
+  // Removes an item from the media library list AND deletes the underlying R2
+  // file to reclaim storage. The caller (MediaLibraryPage) is responsible for
+  // warning the user first if the image is still used in a saved signature,
+  // since deleting the R2 file will break that signature's image in any email
+  // already sent. Here we just carry out the deletion. R2 deletion is
+  // best-effort: if it fails (network, already gone), we still remove the
+  // library entry so the UI stays consistent, and log the error.
+  function deleteFromMediaLibrary(id, url) {
+    if (url) {
+      deleteUserAssetFromR2(url, auth).catch(err => {
+        console.error("R2 asset delete failed (removing library entry anyway):", err && err.message);
+      });
+    }
+    setMediaLibrary(prev => {
+      const updated = prev.filter(m => m.id !== id);
+      try { localStorage.setItem("ss_media", JSON.stringify(updated)); } catch {}
+      return updated;
+    });
+  }
+
   function showToast(msg) {
     setToast(msg);
     setTimeout(() => setToast(null), 2500);
@@ -3324,6 +3344,7 @@ export default function App() {
     { id:"home", icon:"home", label:"Home" },
     { id:"recent", icon:"folder_special", label:"Recent" },
     { id:"templates", icon:"grid_view", label:"Templates" },
+    { id:"media", icon:"perm_media", label:"Media" },
     { id:"editor", icon:"hardware", label:"Build" },
   ];
 
@@ -3491,6 +3512,7 @@ export default function App() {
           />
         )}
         {screen === "profile" && <ProfileForm profile={profile} onSave={p => { saveProfile(p); showToast("Profile saved!"); }} onNavigate={navigate} onAddMedia={addToMediaLibrary} />}
+        {screen === "media" && <MediaLibraryPage mediaLibrary={mediaLibrary} signatures={signatures} onDelete={deleteFromMediaLibrary} onAddMedia={addToMediaLibrary} onNavigate={navigate} />}
         {screen === "export" && activeSig && <ExportScreen sig={activeSig} profile={profile} onNavigate={navigate} onSave={saveCurrent} />}
       </main>
 
@@ -4936,6 +4958,43 @@ async function uploadUserAssetToR2(file, auth) {
   if (!putRes.ok) throw new Error("Upload to storage failed.");
 
   return publicUrl;
+}
+
+// Deletes a user's own asset from R2 by its public URL. Returns quietly on
+// success. If the URL isn't an R2 file (e.g. a base64 data URL from the old
+// pre-R2 uploads, or a preset), the server no-ops and we still succeed, so
+// the caller can drop the library entry either way. Only throws on a real
+// storage/permission error worth surfacing.
+async function deleteUserAssetFromR2(url, auth) {
+  const user = auth && auth.currentUser;
+  if (!user) throw new Error("Please sign in again.");
+  const idToken = await user.getIdToken();
+
+  const res = await fetch("/api/delete-asset", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ idToken, url }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || "Could not delete the file.");
+  }
+  return res.json();
+}
+
+// Returns the names of any of the user's saved signatures that reference the
+// given image URL, anywhere (image content, cropped originals, badges, custom
+// icons, etc.). Rather than checking each field by name -- which risks missing
+// a spot -- it serializes each signature to JSON and looks for the URL string,
+// which catches every reference location automatically. Used to warn before a
+// delete that would break a live signature.
+function findSignaturesUsingUrl(url, signatures) {
+  if (!url) return [];
+  return (signatures || [])
+    .filter(sig => {
+      try { return JSON.stringify(sig).includes(url); } catch { return false; }
+    })
+    .map(sig => sig.name || "Untitled signature");
 }
 
 // Single entry point every image <input> onChange routes through, with the
@@ -7010,6 +7069,114 @@ function ProfileForm({ profile, onSave, onNavigate, onAddMedia }) {
         <button onClick={()=>onNavigate("home")} style={{ background:"#fff", color:"#374151", border:"1px solid #d1d5db", borderRadius:8, padding:"10px 20px", fontSize:15, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>Cancel</button>
         <button onClick={()=>onSave(draft)} style={{ background:"#1c1b1b", color:"#fff", border:"none", borderRadius:8, padding:"10px 24px", fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>Save Profile</button>
       </div>
+    </div>
+  );
+}
+
+// --- Media Library Page ---
+// Full-page view of every image an agent has uploaded, with delete. Animated
+// GIFs render live here (plain <img>), same as anywhere else. Delete removes
+// the library entry only -- see deleteFromMediaLibrary for why signatures and
+// R2 files are intentionally left untouched.
+function MediaLibraryPage({ mediaLibrary, signatures, onDelete, onAddMedia, onNavigate }) {
+  // confirm holds { id, url, usedIn: [names] } for the item pending deletion.
+  const [confirm, setConfirm] = useState(null);
+
+  function handleUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    handleImageFile(file, (dataUrl) => { onAddMedia(dataUrl, file.name); }, 600, undefined, auth);
+    e.target.value = "";
+  }
+
+  function askDelete(item) {
+    const usedIn = findSignaturesUsingUrl(item.url, signatures);
+    setConfirm({ id: item.id, url: item.url, usedIn });
+  }
+
+  function doDelete() {
+    if (confirm) onDelete(confirm.id, confirm.url);
+    setConfirm(null);
+  }
+
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:24 }}>
+        <div>
+          <h2 style={{ fontSize:24, fontWeight:800, color:"#111827", letterSpacing:-0.3 }}>Media Library</h2>
+          <p style={{ fontSize:15, color:"#6b7280", marginTop:4 }}>
+            Every image and GIF you've uploaded. Deleting one here removes it from your library and from storage.
+          </p>
+        </div>
+        <label style={{ display:"inline-flex", alignItems:"center", gap:8, background:"#0051d5", color:"#fff", borderRadius:8, padding:"10px 16px", fontSize:14, fontWeight:600, cursor:"pointer", whiteSpace:"nowrap", flexShrink:0 }}>
+          <Icon name="upload" size={18} color="#fff" />
+          Upload Image
+          <input type="file" accept="image/*,image/gif" style={{ display:"none" }} onChange={handleUpload} />
+        </label>
+      </div>
+
+      {mediaLibrary.length === 0 ? (
+        <div style={{ background:"#fff", border:"1px dashed #d1d5db", borderRadius:12, padding:"64px 24px", textAlign:"center", color:"#9ca3af" }}>
+          <Icon name="perm_media" size={48} color="#d1d5db" />
+          <p style={{ fontSize:16, fontWeight:600, color:"#6b7280", marginTop:12 }}>No uploads yet</p>
+          <p style={{ fontSize:14, marginTop:4 }}>Images and GIFs you upload will collect here for reuse across signatures.</p>
+        </div>
+      ) : (
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(180px, 1fr))", gap:16 }}>
+          {mediaLibrary.map(item => (
+            <div key={item.id} style={{ background:"#fff", border:"1px solid #e5e7eb", borderRadius:10, overflow:"hidden", display:"flex", flexDirection:"column" }}>
+              <div style={{ position:"relative", height:150, background:"#f9fafb", display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden" }}>
+                <img src={item.url} alt={item.name || ""} style={{ maxWidth:"100%", maxHeight:"100%", objectFit:"contain", display:"block" }} referrerPolicy="no-referrer" />
+                <button onClick={() => askDelete(item)} title="Delete"
+                  style={{ position:"absolute", top:6, right:6, width:28, height:28, borderRadius:6, border:"none", background:"rgba(17,24,39,0.6)", color:"#fff", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", padding:0 }}>
+                  <Icon name="delete" size={16} color="#fff" />
+                </button>
+              </div>
+              <div style={{ padding:"8px 10px", fontSize:12, color:"#6b7280", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }} title={item.name || ""}>
+                {item.name || "Untitled"}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Delete confirmation -- modal so the in-use warning is unmissable. */}
+      {confirm && (
+        <div onClick={() => setConfirm(null)} style={{ position:"fixed", inset:0, background:"rgba(17,24,39,0.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:100, padding:20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background:"#fff", borderRadius:12, padding:24, maxWidth:440, width:"100%", boxShadow:"0 20px 40px rgba(0,0,0,0.2)" }}>
+            <h3 style={{ fontSize:18, fontWeight:800, color:"#111827", marginBottom:10 }}>
+              {confirm.usedIn.length > 0 ? "This image is in use" : "Delete this image?"}
+            </h3>
+            {confirm.usedIn.length > 0 ? (
+              <div style={{ fontSize:14, color:"#374151", lineHeight:1.5 }}>
+                <p style={{ marginBottom:10 }}>
+                  It's used in {confirm.usedIn.length === 1 ? "this signature" : "these signatures"}:
+                </p>
+                <ul style={{ margin:"0 0 12px 0", paddingLeft:18 }}>
+                  {confirm.usedIn.map((n, i) => (
+                    <li key={i} style={{ fontWeight:600, marginBottom:2 }}>{n}</li>
+                  ))}
+                </ul>
+                <p style={{ background:"#fef2f2", border:"1px solid #fecaca", borderRadius:8, padding:"10px 12px", color:"#991b1b", fontSize:13 }}>
+                  Deleting it will break the image in {confirm.usedIn.length === 1 ? "that signature" : "those signatures"}, including in emails you've already sent. This can't be undone, re-uploading creates a new file, not the same link.
+                </p>
+              </div>
+            ) : (
+              <p style={{ fontSize:14, color:"#374151", lineHeight:1.5 }}>
+                This removes it from your library and deletes the file from storage. This can't be undone.
+              </p>
+            )}
+            <div style={{ display:"flex", justifyContent:"flex-end", gap:10, marginTop:20 }}>
+              <button onClick={() => setConfirm(null)}
+                style={{ background:"#fff", color:"#374151", border:"1px solid #d1d5db", borderRadius:8, padding:"9px 18px", fontSize:14, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>Cancel</button>
+              <button onClick={doDelete}
+                style={{ background:"#dc2626", color:"#fff", border:"none", borderRadius:8, padding:"9px 18px", fontSize:14, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
+                {confirm.usedIn.length > 0 ? "Delete anyway" : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
