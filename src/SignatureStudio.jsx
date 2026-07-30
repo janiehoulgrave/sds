@@ -1962,10 +1962,23 @@ function renderElementInner(el, profile) {
   const lineHeightPx = s.lineHeight
     ? (String(s.lineHeight).includes("px") ? s.lineHeight : `${Math.round(fSizeNum * parseFloat(s.lineHeight))}px`)
     : `${Math.round(fSizeNum * 1.2)}px`;
-  const baseStyle = `font-family:${ff};font-size:${fSize};color:${fColor};font-weight:${fw};${s.textAlign?'text-align:'+s.textAlign+';':''}${s.textTransform?'text-transform:'+s.textTransform+';':''}${s.letterSpacing?'letter-spacing:'+s.letterSpacing+';':''}line-height:${lineHeightPx};${s.fontStyle?'font-style:'+s.fontStyle+';':''}margin-top:0;margin-bottom:${s.marginBottom||'2px'};mso-margin-top-alt:0;mso-margin-bottom-alt:${s.marginBottom||'2px'};${bgCss}${borderCss}`;
+  // Spacing between lines now lives entirely in td padding-bottom, not div
+  // margin. This is the standard technique professional signature tools
+  // (WiseStamp, HubSpot, etc.) use -- table cell padding is far more
+  // consistently honored across Gmail/Outlook/Apple Mail than block-element
+  // margins, which is exactly the category of quirk (stripped/altered
+  // properties, inconsistent collapsing) we kept running into with divs.
+  const cellBottomPad = s.marginBottom || "2px";
+  const baseStyle = `font-family:${ff};font-size:${fSize};color:${fColor};font-weight:${fw};${s.textAlign?'text-align:'+s.textAlign+';':''}${s.textTransform?'text-transform:'+s.textTransform+';':''}${s.letterSpacing?'letter-spacing:'+s.letterSpacing+';':''}line-height:${lineHeightPx};${s.fontStyle?'font-style:'+s.fontStyle+';':''}padding:0 0 ${cellBottomPad} 0;mso-padding-alt:0 0 ${cellBottomPad} 0;${bgCss}${borderCss}`;
+  // Wraps a line of text in its own single-row, single-cell table -- the
+  // email-safe equivalent of a <div>, but immune to the div-stacking quirks
+  // Gmail's paste sanitizer applies inconsistently.
+  function textLine(content) {
+    return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;width:100%;"><tr><td style="${baseStyle}">${content}</td></tr></table>`;
+  }
 
   if (el.type === "text") {
-    return `<div style="${baseStyle}">${interpolate(el.content || "", profile)}</div>`;
+    return textLine(interpolate(el.content || "", profile));
   }
   if (el.type === "image") {
     const src = el.content || "";
@@ -2068,15 +2081,15 @@ function renderElementInner(el, profile) {
       }
       // Convert ^text^ to superscript HTML, and (R) to ® -- applySup is
       // defined at the top of this function now, see comment there.
-      case "name": { const nameVal = applySup(profile.name||"Your Name"); return `<div style="${baseStyle}">${nameVal}</div>`; }
-      case "title": return `<div style="${baseStyle}">${profile.title||"Realtor®"}</div>`;
-      case "company": return `<div style="${baseStyle}">${profile.company||"Compass"}</div>`;
+      case "name": { const nameVal = applySup(profile.name||"Your Name"); return textLine(nameVal); }
+      case "title": return textLine(profile.title||"Realtor®");
+      case "company": return textLine(profile.company||"Compass");
       case "phones": {
         // Combines mobile + office phone into one auto-formatted line, pulled
         // live from the profile by default -- but since this element is now
         // directly editable (double-click, same as other text), el.content
         // holds a manual override if the user has typed their own version.
-        if (el.content) return `<div style="${baseStyle}">${el.content}</div>`;
+        if (el.content) return textLine(el.content);
         const mobile = (profile.mobile||"").trim();
         const office = (profile.phone||"").trim();
         let phoneText;
@@ -2084,14 +2097,14 @@ function renderElementInner(el, profile) {
         else if (mobile) phoneText = `Mobile: ${mobile}`;
         else if (office) phoneText = `Office: ${office}`;
         else phoneText = "Mobile: (555) 000-0000 | Office: (555) 000-0000";
-        return `<div style="${baseStyle}">${phoneText}</div>`;
+        return textLine(phoneText);
       }
-      case "phone": return `<div style="${baseStyle}">${profile.phone||"(555) 000-0000"}</div>`;
-      case "mobile": return `<div style="${baseStyle}">${profile.mobile||"(555) 000-0000"}</div>`;
-      case "email": return `<div style="${baseStyle}"><a href="mailto:${profile.email}" style="color:${fColor};text-decoration:none;">${profile.email||"you@compass.com"}</a></div>`;
-      case "website": return `<div style="${baseStyle}">${profile.website||"compass.com"}</div>`;
-      case "address": return `<div style="${baseStyle}">${profile.address||"123 Main St"}</div>`;
-      case "bio": return `<div style="${baseStyle}">${profile.bio||""}</div>`;
+      case "phone": return textLine(profile.phone||"(555) 000-0000");
+      case "mobile": return textLine(profile.mobile||"(555) 000-0000");
+      case "email": return textLine(`<a href="mailto:${profile.email}" style="color:${fColor};text-decoration:none;">${profile.email||"you@compass.com"}</a>`);
+      case "website": return textLine(profile.website||"compass.com");
+      case "address": return textLine(profile.address||"123 Main St");
+      case "bio": return textLine(profile.bio||"");
       case "social": {
         const socialStyle = s.socialStyle || "colored";
         const iconSize = parseInt(s.iconSize) || 28;
@@ -2158,7 +2171,7 @@ function renderElementInner(el, profile) {
         }).join("");
         return `<div style="height:${iconSize}px;line-height:0;font-size:0;padding-top:${s.paddingTop||'0px'};margin-top:0;margin-bottom:${s.marginBottom||'0px'};mso-padding-alt:${s.paddingTop||'0px'} 0 0 0;mso-margin-top-alt:0;mso-margin-bottom-alt:${s.marginBottom||'0px'};">${btns}${customBtns}</div>`;
       }
-      default: return `<div style="${baseStyle}">${interpolate("{{"+el.subtype+"}}", profile)}</div>`;
+      default: return textLine(interpolate("{{"+el.subtype+"}}", profile));
     }
   }
   return "";
