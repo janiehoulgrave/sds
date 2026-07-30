@@ -3344,8 +3344,8 @@ export default function App() {
     { id:"home", icon:"home", label:"Home" },
     { id:"recent", icon:"folder_special", label:"Recent" },
     { id:"templates", icon:"grid_view", label:"Templates" },
-    { id:"media", icon:"perm_media", label:"Media" },
     { id:"editor", icon:"hardware", label:"Build" },
+    { id:"media", icon:"perm_media", label:"Media" },
   ];
 
   if (accountLoading) {
