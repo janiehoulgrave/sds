@@ -4339,8 +4339,13 @@ function ColPropertiesPanel({ col, rowId, colGap, propLabel, inputStyle, onUpdat
       <div style={{ marginBottom:10 }}>
         <span style={propLabel}>Background Color</span>
         <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-          <input type="color" style={{ width:40, height:32, border:"1px solid #e5e7eb", borderRadius:6, padding:2, cursor:"pointer" }}
-            value={s.backgroundColor||"#ffffff"} onChange={e=>onUpdateColStyle("backgroundColor",e.target.value)}/>
+          <div style={{ position:"relative", width:40, height:32, flexShrink:0 }}>
+            <div style={{ width:40, height:32, borderRadius:6, border:"1px solid #e5e7eb", background: s.backgroundColor||"#ffffff", cursor:"pointer" }} />
+            <input type="color"
+              style={{ position:"absolute", inset:0, opacity:0, width:"100%", height:"100%", cursor:"pointer" }}
+              value={(() => { const v = s.backgroundColor||"#ffffff"; return /^#[0-9a-fA-F]{6}$/.test(v) ? v : "#ffffff"; })()}
+              onChange={e=>onUpdateColStyle("backgroundColor",e.target.value)}/>
+          </div>
           <input style={{ ...inputStyle, flex:1 }} value={s.backgroundColor||"#ffffff"} onChange={e=>onUpdateColStyle("backgroundColor",e.target.value)}/>
         </div>
       </div>
@@ -4396,8 +4401,7 @@ function SideBorderSection({ label, s, propLabel, inputStyle, onUpdate, widthKey
       {open && (
         <div style={{ marginTop:8, display:"flex", flexDirection:"column", gap:8 }}>
           <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-            <input type="color" style={{ width:40, height:32, border:"1px solid #e5e7eb", borderRadius:6, padding:2, cursor:"pointer" }}
-              value={s[colorKey]||"#e5e7eb"} onChange={e=>onUpdate(colorKey,e.target.value)}/>
+            <div style={{ position:"relative", width:40, height:32, flexShrink:0 }}><div style={{ width:40, height:32, borderRadius:"6px", border:"1px solid #e5e7eb", background: s[colorKey]||"#e5e7eb", cursor:"pointer" }} /><input type="color" style={{ position:"absolute", inset:0, opacity:0, width:"100%", height:"100%", cursor:"pointer" }} value={(() => { const v = s[colorKey]||"#e5e7eb"; return /^#[0-9a-fA-F]{6}$/.test(v) ? v : "#ffffff"; })()} onChange={e=>onUpdate(colorKey,e.target.value)}/></div>
             <input style={{ ...inputStyle, flex:1 }} placeholder="Color" value={s[colorKey]||""} onChange={e=>onUpdate(colorKey,e.target.value)}/>
           </div>
           <DimensionInput style={inputStyle} placeholder="Width (e.g. 1px)" value={s[widthKey]||""} onChange={v=>onUpdate(widthKey,v)}/>
@@ -4596,8 +4600,7 @@ function BorderSection({ label, s, propLabel, inputStyle, onUpdate, defaultOpen 
       {open && (
         <div style={{ marginTop:8, display:"flex", flexDirection:"column", gap:8 }}>
           <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-            <input type="color" style={{ width:40, height:32, border:"1px solid #e5e7eb", borderRadius:6, padding:2, cursor:"pointer" }}
-              value={s.borderColor||"#e5e7eb"} onChange={e=>onUpdate("borderColor",e.target.value)}/>
+            <div style={{ position:"relative", width:40, height:32, flexShrink:0 }}><div style={{ width:40, height:32, borderRadius:"6px", border:"1px solid #e5e7eb", background: s.borderColor||"#e5e7eb", cursor:"pointer" }} /><input type="color" style={{ position:"absolute", inset:0, opacity:0, width:"100%", height:"100%", cursor:"pointer" }} value={(() => { const v = s.borderColor||"#e5e7eb"; return /^#[0-9a-fA-F]{6}$/.test(v) ? v : "#ffffff"; })()} onChange={e=>onUpdate("borderColor",e.target.value)}/></div>
             <input style={{ ...inputStyle, flex:1 }} placeholder="Color" value={s.borderColor||""} onChange={e=>onUpdate("borderColor",e.target.value)}/>
           </div>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:5 }}>
@@ -6118,12 +6121,12 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                 }} />
                 <span style={{ ...propLabel, marginTop:8 }}>Background Color</span>
                 <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-                  <input type="color" style={{ width:40, height:32, border:"1px solid #e5e7eb", borderRadius:6, padding:2, cursor:"pointer" }} value={selectedEl.style?.backgroundColor||"#0051d5"} onChange={e=>onUpdateElStyle("backgroundColor",e.target.value)}/>
+                  <div style={{ position:"relative", width:40, height:32, flexShrink:0 }}><div style={{ width:40, height:32, borderRadius:"6px", border:"1px solid #e5e7eb", background: selectedEl.style?.backgroundColor||"#0051d5", cursor:"pointer" }} /><input type="color" style={{ position:"absolute", inset:0, opacity:0, width:"100%", height:"100%", cursor:"pointer" }} value={(() => { const v = selectedEl.style?.backgroundColor||"#0051d5"; return /^#[0-9a-fA-F]{6}$/.test(v) ? v : "#ffffff"; })()} onChange={e=>onUpdateElStyle("backgroundColor",e.target.value)}/></div>
                   <input style={{ ...inputStyle, flex:1 }} value={selectedEl.style?.backgroundColor||"#0051d5"} onChange={e=>onUpdateElStyle("backgroundColor",e.target.value)}/>
                 </div>
                 <span style={{ ...propLabel, marginTop:8 }}>Text Color</span>
                 <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-                  <input type="color" style={{ width:40, height:32, border:"1px solid #e5e7eb", borderRadius:6, padding:2, cursor:"pointer" }} value={selectedEl.style?.color||"#ffffff"} onChange={e=>onUpdateElStyle("color",e.target.value)}/>
+                  <div style={{ position:"relative", width:40, height:32, flexShrink:0 }}><div style={{ width:40, height:32, borderRadius:"6px", border:"1px solid #e5e7eb", background: selectedEl.style?.color||"#ffffff", cursor:"pointer" }} /><input type="color" style={{ position:"absolute", inset:0, opacity:0, width:"100%", height:"100%", cursor:"pointer" }} value={(() => { const v = selectedEl.style?.color||"#ffffff"; return /^#[0-9a-fA-F]{6}$/.test(v) ? v : "#ffffff"; })()} onChange={e=>onUpdateElStyle("color",e.target.value)}/></div>
                   <input style={{ ...inputStyle, flex:1 }} value={selectedEl.style?.color||"#ffffff"} onChange={e=>onUpdateElStyle("color",e.target.value)}/>
                 </div>
                 <div style={{ marginTop:8 }}>
@@ -6327,8 +6330,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                   <div style={{ marginBottom:10 }}>
                     <span style={propLabel}>Headshot Border</span>
                     <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:6 }}>
-                      <input type="color" style={{ width:40, height:32, border:"1px solid #e5e7eb", borderRadius:6, padding:2, cursor:"pointer" }}
-                        value={selectedEl.style?.borderColor||"#e5e7eb"} onChange={e=>onUpdateElStyle("borderColor",e.target.value)}/>
+                      <div style={{ position:"relative", width:40, height:32, flexShrink:0 }}><div style={{ width:40, height:32, borderRadius:"6px", border:"1px solid #e5e7eb", background: selectedEl.style?.borderColor||"#e5e7eb", cursor:"pointer" }} /><input type="color" style={{ position:"absolute", inset:0, opacity:0, width:"100%", height:"100%", cursor:"pointer" }} value={(() => { const v = selectedEl.style?.borderColor||"#e5e7eb"; return /^#[0-9a-fA-F]{6}$/.test(v) ? v : "#ffffff"; })()} onChange={e=>onUpdateElStyle("borderColor",e.target.value)}/></div>
                       <input style={{ ...inputStyle, flex:1 }} placeholder="Color" value={selectedEl.style?.borderColor||""} onChange={e=>onUpdateElStyle("borderColor",e.target.value)}/>
                     </div>
                     <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:5 }}>
@@ -6534,7 +6536,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                 <div style={{ marginBottom:10 }}>
                   <span style={propLabel}>Color</span>
                   <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-                    <input type="color" style={{ width:40, height:32, border:"1px solid #e5e7eb", borderRadius:6, padding:2, cursor:"pointer" }} value={selectedEl.style?.borderColor||"#e5e7eb"} onChange={e=>onUpdateElStyle("borderColor",e.target.value)}/>
+                    <div style={{ position:"relative", width:40, height:32, flexShrink:0 }}><div style={{ width:40, height:32, borderRadius:"6px", border:"1px solid #e5e7eb", background: selectedEl.style?.borderColor||"#e5e7eb", cursor:"pointer" }} /><input type="color" style={{ position:"absolute", inset:0, opacity:0, width:"100%", height:"100%", cursor:"pointer" }} value={(() => { const v = selectedEl.style?.borderColor||"#e5e7eb"; return /^#[0-9a-fA-F]{6}$/.test(v) ? v : "#ffffff"; })()} onChange={e=>onUpdateElStyle("borderColor",e.target.value)}/></div>
                     <input style={{ ...inputStyle, flex:1 }} value={selectedEl.style?.borderColor||"#e5e7eb"} onChange={e=>onUpdateElStyle("borderColor",e.target.value)}/>
                   </div>
                 </div>
@@ -6563,7 +6565,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                     without a second, overlapping control. */}
                 <div style={{ marginBottom:10 }}><span style={propLabel}>Background Color</span>
                   <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-                    <input type="color" style={{ width:40, height:32, border:"1px solid #e5e7eb", borderRadius:6, padding:2, cursor:"pointer" }} value={selectedEl.style?.backgroundColor||"#ffffff"} onChange={e=>onUpdateElStyle("backgroundColor",e.target.value)}/>
+                    <div style={{ position:"relative", width:40, height:32, flexShrink:0 }}><div style={{ width:40, height:32, borderRadius:"6px", border:"1px solid #e5e7eb", background: selectedEl.style?.backgroundColor||"#ffffff", cursor:"pointer" }} /><input type="color" style={{ position:"absolute", inset:0, opacity:0, width:"100%", height:"100%", cursor:"pointer" }} value={(() => { const v = selectedEl.style?.backgroundColor||"#ffffff"; return /^#[0-9a-fA-F]{6}$/.test(v) ? v : "#ffffff"; })()} onChange={e=>onUpdateElStyle("backgroundColor",e.target.value)}/></div>
                     <input style={{ ...inputStyle, flex:1 }} value={selectedEl.style?.backgroundColor||"#ffffff"} onChange={e=>onUpdateElStyle("backgroundColor",e.target.value)}/>
                   </div>
                 </div>
@@ -6642,9 +6644,13 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
             <div style={{ marginBottom:10 }}>
               <span style={propLabel}>Background Color</span>
               <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                <input type="color" style={{ width:40, height:32, border:"1px solid #e5e7eb", borderRadius:6, padding:2, cursor:"pointer" }}
-                  value={selectedRow.style?.backgroundColor||"#ffffff"}
-                  onChange={e=>onUpdateRowStyle(selectedRow.id,"backgroundColor",e.target.value)}/>
+                <div style={{ position:"relative", width:40, height:32, flexShrink:0 }}>
+                  <div style={{ width:40, height:32, borderRadius:6, border:"1px solid #e5e7eb", background: selectedRow.style?.backgroundColor||"#ffffff", cursor:"pointer" }} />
+                  <input type="color"
+                    style={{ position:"absolute", inset:0, opacity:0, width:"100%", height:"100%", cursor:"pointer" }}
+                    value={(() => { const v = selectedRow.style?.backgroundColor||"#ffffff"; return /^#[0-9a-fA-F]{6}$/.test(v) ? v : "#ffffff"; })()}
+                    onChange={e=>onUpdateRowStyle(selectedRow.id,"backgroundColor",e.target.value)}/>
+                </div>
                 <input style={{ ...inputStyle, flex:1 }} value={selectedRow.style?.backgroundColor||"#ffffff"} onChange={e=>onUpdateRowStyle(selectedRow.id,"backgroundColor",e.target.value)}/>
               </div>
             </div>
