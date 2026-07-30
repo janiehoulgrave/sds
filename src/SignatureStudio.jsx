@@ -1921,6 +1921,24 @@ function saveTemplateOverrides(overrides) {
 }
 
 // --- Signature Renderer ---
+// SINGLE SOURCE OF TRUTH for line height, called by BOTH the live editor
+// canvas and the export renderer. These previously computed it independently
+// -- the canvas used the browser's `normal` (font-metric dependent, ~1.2 for
+// the Compass stack) while the export used an explicit computed pixel value.
+// That guaranteed a permanent small drift between what a designer saw and
+// what actually got pasted, on every single line. An explicit pixel value is
+// required for the export (email clients override unitless/`normal` values
+// unpredictably), so the canvas matches the export rather than the reverse.
+function computeLineHeightPx(fontSize, lineHeight) {
+  const fSizeNum = parseInt(fontSize) || 13;
+  if (lineHeight) {
+    return String(lineHeight).includes("px")
+      ? String(lineHeight)
+      : `${Math.round(fSizeNum * parseFloat(lineHeight))}px`;
+  }
+  return `${Math.round(fSizeNum * 1.2)}px`;
+}
+
 function renderElementInner(el, profile) {
   const s = el.style || {};
   const fSize = s.fontSize || "13px";
@@ -1958,10 +1976,7 @@ function renderElementInner(el, profile) {
   // photos, badges, buttons, dividers) rather than just text-like ones.
   const bgCss = s.backgroundColor ? `background:${s.backgroundColor};` : "";
   const borderCss = s.borderWidth ? `border:${s.borderWidth} ${s.borderStyle||"solid"} ${s.borderColor||"#e5e7eb"};` : "";
-  const fSizeNum = parseInt(fSize) || 13;
-  const lineHeightPx = s.lineHeight
-    ? (String(s.lineHeight).includes("px") ? s.lineHeight : `${Math.round(fSizeNum * parseFloat(s.lineHeight))}px`)
-    : `${Math.round(fSizeNum * 1.2)}px`;
+  const lineHeightPx = computeLineHeightPx(fSize, s.lineHeight);
   // Spacing between lines now lives entirely in td padding-bottom, not div
   // margin. This is the standard technique professional signature tools
   // (WiseStamp, HubSpot, etc.) use -- table cell padding is far more
@@ -5063,11 +5078,23 @@ function InlineEditableText({ el, profile, onChangeContent, onChangeProfileField
     fontWeight: s.fontWeight || "400",
     textTransform: s.textTransform || "none",
     letterSpacing: s.letterSpacing || "normal",
-    lineHeight: s.lineHeight || "normal",
+    // Same shared helper the export uses -- see computeLineHeightPx.
+    lineHeight: computeLineHeightPx(s.fontSize, s.lineHeight),
+    // textAlign was applied by the export renderer but missing here, so
+    // alignment changes looked like they did nothing in the live canvas yet
+    // appeared correctly once the signature was copied out.
+    textAlign: s.textAlign || "left",
     fontStyle: s.fontStyle || "normal",
-    marginBottom: s.marginBottom || 0,
-    marginTop: s.marginTop || 0,
-    margin: "2px 0",
+    // Spacing must use the SAME rule as the export renderer, which applies
+    // `padding-bottom: s.marginBottom || "2px"` and zero top spacing. These
+    // were previously followed by a `margin: "2px 0"` shorthand, which -- being
+    // declared last in the same style object -- silently overrode BOTH of them
+    // and forced a flat 2px gap on every line, discarding whatever spacing the
+    // designer had actually set. That made the live canvas disagree with the
+    // exported/pasted result by ~15px on a typical signature, since the export
+    // was honoring the real stored values the whole time.
+    marginTop: 0,
+    marginBottom: s.marginBottom || "2px",
     // Padding, background, and border were only ever applied in the export
     // renderer (renderElementHTML/renderElementInner's baseStyle) -- this live
     // canvas view builds its own separate style object and never read them, so
