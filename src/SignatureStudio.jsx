@@ -1941,7 +1941,7 @@ function computeLineHeightPx(fontSize, lineHeight) {
 
 function renderElementInner(el, profile) {
   const s = el.style || {};
-  const fSize = s.fontSize || "13px";
+  const fSize = s.fontSize || "11px";
   const fColor = s.color || "#374151";
   const fw = s.fontWeight || "400";
   // Convert ^text^ to superscript HTML, and (R) to ® -- declared here, before
@@ -3103,7 +3103,11 @@ export default function App() {
       ...(subtype ? { subtype } : {}),
       content: imageUrl ? imageUrl : (type === "text" ? "Custom text" : (type === "button" ? "Click Here" : "")),
       style: {
-        fontSize:"13px", color:"#374151",
+        // Default sizes: the name reads as the headline of a signature so it
+        // defaults large (24px); everything else defaults to 11px. An explicit
+        // styleOverride still wins last.
+        fontSize: (type==="dynamic" && subtype==="name") ? "24px" : "11px",
+        color:"#374151",
         ...(type==="dynamic"&&subtype==="photo" ? {width:"90px",height:"90px",imageShape:"circle",objectFit:"cover"} : {}),
         ...(type==="dynamic"&&subtype==="logo" ? {width:"90px",height:"22px"} : {}),
         ...(type==="image" ? {width:"100%",height:"auto",objectFit:"cover"} : {}),
@@ -5247,7 +5251,7 @@ function InlineEditableText({ el, profile, onChangeContent, onChangeProfileField
 
   const style = {
     fontFamily: ff,
-    fontSize: s.fontSize || "13px",
+    fontSize: s.fontSize || "11px",
     color: (s.color||"#374151").replace("colored","#374151"),
     fontWeight: s.fontWeight || "400",
     textTransform: s.textTransform || "none",
@@ -6557,6 +6561,18 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                       );
                     });
                   })()}
+                </div>
+                <span style={propLabel}>Alignment</span>
+                <div style={{ display:"flex", gap:6, marginBottom:10 }}>
+                  {[["left","format_align_left"],["center","format_align_center"],["right","format_align_right"]].map(([val,icon])=>{
+                    const active = (selectedEl.style?.align || "left") === val;
+                    return (
+                      <button key={val} onClick={()=>onUpdateElStyle("align",val)}
+                        style={{ flex:1, padding:"7px 4px", border:`2px solid ${active?"#0051d5":"#e5e7eb"}`, borderRadius:6, background: active?"#eff6ff":"#f9fafb", cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                        <Icon name={icon} size={18} color={active?"#0051d5":"#6b7280"} />
+                      </button>
+                    );
+                  })}
                 </div>
                 <span style={propLabel}>Social Links & Visibility</span>
                 <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
