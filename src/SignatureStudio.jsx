@@ -2859,8 +2859,27 @@ export default function App() {
 
   function updateSig(updatedSig) { pushSig(updatedSig); }
 
+  // Normalizes color-type style values before they're stored. Users routinely
+  // type bare hex ("f7f7f4") into the text field next to a color swatch. A bare
+  // hex is NOT valid CSS -- browsers reject `background:f7f7f4` outright, so the
+  // canvas keeps its old color AND the export writes an invalid declaration that
+  // every email client silently drops. That produced two symptoms at once: the
+  // rendered tone diverged from what was typed, and the color never survived to
+  // the pasted signature. Prepending "#" to a bare 3/6-digit hex fixes both. Any
+  // value that already has "#", or is a named color / rgb()/hsl() function, is
+  // left untouched so we don't mangle valid input.
+  const COLOR_STYLE_KEYS = new Set(["backgroundColor", "color", "borderColor"]);
+  function normalizeColorValue(key, val) {
+    if (!COLOR_STYLE_KEYS.has(key)) return val;
+    if (typeof val !== "string") return val;
+    const t = val.trim();
+    if (/^[0-9a-fA-F]{6}$/.test(t) || /^[0-9a-fA-F]{3}$/.test(t)) return "#" + t;
+    return t;
+  }
+
   function updateElStyle(key, val) {
     if (!activeSig || !selectedElId) return;
+    val = normalizeColorValue(key, val);
     if (key === "__linkUrl__") {
       const updated = { ...activeSig, rows: activeSig.rows.map(r => ({ ...r, columns: r.columns.map(c => ({ ...c, elements: c.elements.map(e => e.id === selectedElId ? { ...e, linkUrl: val } : e) })) })) };
       pushSig(updated);
@@ -2879,6 +2898,7 @@ export default function App() {
   // first and only the last-written field ever sticks.
   function updateElStyleMulti(updates) {
     if (!activeSig || !selectedElId) return;
+    updates = Object.fromEntries(Object.entries(updates).map(([k, v]) => [k, normalizeColorValue(k, v)]));
     const updated = { ...activeSig, rows: activeSig.rows.map(r => ({ ...r, columns: r.columns.map(c => ({ ...c, elements: c.elements.map(e => e.id === selectedElId ? { ...e, style: { ...e.style, ...updates } } : e) })) })) };
     pushSig(updated);
   }
@@ -2924,6 +2944,7 @@ export default function App() {
 
   function updateColStyle(rowId, colId, key, val) {
     if (!activeSig) return;
+    val = normalizeColorValue(key, val);
     const updated = { ...activeSig, rows: activeSig.rows.map(r => r.id !== rowId ? r : {
       ...r, columns: r.columns.map(c => c.id !== colId ? c : { ...c, style: { ...c.style, [key]: val } })
     })};
@@ -2948,6 +2969,7 @@ export default function App() {
   function updateRowStyle(rowId, key, val) {
     if (!activeSig) return;
     if (key === "__noop__") return;
+    val = normalizeColorValue(key, val);
     if (typeof key === "string" && key.startsWith("__colwidth__")) {
       const colId = key.replace("__colwidth__", "");
       const updated = { ...activeSig, rows: activeSig.rows.map(r => r.id !== rowId ? r : {
