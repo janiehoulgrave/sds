@@ -139,6 +139,10 @@ export default async function handler(req, res) {
       // Namespace every user's uploads under their own UID.
       keyPrefix = `user-uploads/${payload.sub}`;
     } catch (err) {
+      // Surface the specific reason in the server logs so a 401 can be
+      // diagnosed (audience mismatch, expired token, bad signature, etc.)
+      // rather than being an opaque "Not authorized".
+      console.error("Firebase token verification failed:", err && err.message);
       return res.status(401).json({ error: "Not authorized" });
     }
   }
