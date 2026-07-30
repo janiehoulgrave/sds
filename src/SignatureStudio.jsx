@@ -6327,7 +6327,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                 {selectedEl.content && <img src={selectedEl.content} alt="" style={{ width:"100%", height:60, objectFit:"cover", borderRadius:4, marginBottom:6, border:"1px solid #e5e7eb" }} />}
                 <label style={{ display:"block", width:"100%", background:"#f9fafb", border:"1px solid #e5e7eb", borderRadius:6, padding:"7px 8px", fontSize:15, cursor:"pointer", textAlign:"center", fontFamily:"inherit" }}>
                   Replace Image
-                  <input type="file" accept="image/*,image/gif" style={{ display:"none" }} onChange={e=>{const f=e.target.files?.[0];if(!f)return;handleImageFile(f, (dataUrl)=>onUpdateElContent(dataUrl), 600, undefined, auth);}} />
+                  <input type="file" accept="image/*,image/gif" style={{ display:"none" }} onChange={e=>{const f=e.target.files?.[0];if(!f)return;handleImageFile(f, (dataUrl)=>{ onUpdateElContent(dataUrl); if(onAddMedia) onAddMedia(dataUrl, f.name); }, 600, undefined, auth);}} />
                 </label>
                 <LinkedDimensionPair propLabel={propLabel} inputStyle={inputStyle}
                   widthValue={selectedEl.style?.width} widthDefault="100%"

@@ -1,5 +1,5 @@
-SDS UPDATE - flush line spacing + media delete + nav order
-==========================================================
+SDS UPDATE - image element now adds to media library (+ prior batch)
+====================================================================
 
 FILES IN THIS ZIP -- where each goes:
   src/SignatureStudio.jsx   -> replaces src/SignatureStudio.jsx
@@ -7,20 +7,19 @@ FILES IN THIS ZIP -- where each goes:
   api/delete-asset.js       -> NEW FILE, add to api/
   api/_verifyToken.js       -> NEW FILE, add to api/  (shared by the other two)
 
-(If you already deployed the media-delete batch, only src/SignatureStudio.jsx
-changed since then -- but re-dragging the api/ files is harmless, they're
-identical.)
+(Only src/SignatureStudio.jsx changed since the last batch. Re-dragging the
+api/ files is harmless -- they're identical.)
 
 WHAT CHANGED THIS BUILD:
-  - Text lines now default to NO bottom spacing (was a hidden 2px). Lines sit
-    flush; add space with the Padding controls in the panel. This fixes the
-    "spacing I can't control" between name/title and below the address.
-  - HEADS UP: this reflows spacing everywhere the old 2px default was in play.
-    The 13 preset templates will look slightly tighter than before. Elements
-    with an explicit margin/padding are unaffected. Re-tune presets later if
-    any look too tight.
-  - (Also in this batch, from before: Media Library page with delete-from-R2 +
-    in-use warning; Media icon sits below Build in the sidebar.)
+  - Uploading an image via the generic Image block ("Replace Image") now also
+    adds it to your Media Library, matching how headshot/logo/badge uploads
+    already behave. Every upload path is now consistent.
+
+STILL IN THIS BUILD (from recent batches):
+  - Flush line spacing by default (add space via Padding controls).
+  - Media Library page: delete removes the R2 file too, with an in-use warning
+    naming any signature that references the image.
+  - Media icon sits below Build in the sidebar.
 
 DEPLOY (GitHub web UI):
   1. Unzip -> src/ and api/ folders.
