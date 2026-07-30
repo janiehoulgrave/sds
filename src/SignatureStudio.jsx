@@ -30,6 +30,19 @@ const DEFAULT_PROFILE = {
   license: "", officePhone: "", otherLink: ""
 };
 
+// Normalizes a user-entered URL into a valid href. Users routinely type
+// "compass.com" or "www.compass.com" without a scheme -- browsers treat a
+// scheme-less href as a RELATIVE path (e.g. sds.janienation.com/compass.com),
+// so the link silently goes nowhere. This prepends https:// when there's no
+// scheme already. mailto:/tel: and existing http(s) links are left alone.
+function ensureHref(url) {
+  if (!url) return "";
+  const u = String(url).trim();
+  if (!u) return "";
+  if (/^(https?:|mailto:|tel:)/i.test(u)) return u;
+  return "https://" + u.replace(/^\/+/, "");
+}
+
 function interpolate(text, profile) {
   if (!text) return "";
   // Convert (R) shorthand to registered trademark symbol
@@ -1942,7 +1955,7 @@ function computeLineHeightPx(fontSize, lineHeight) {
 function renderElementInner(el, profile) {
   const s = el.style || {};
   const fSize = s.fontSize || "11px";
-  const fColor = s.color || "#374151";
+  const fColor = s.color || "#000000";
   const fw = s.fontWeight || "400";
   // Convert ^text^ to superscript HTML, and (R) to ® -- declared here, before
   // the switch below, rather than inline between two case labels. A function
@@ -2007,7 +2020,7 @@ function renderElementInner(el, profile) {
     // always being 100% -- otherwise shrinking the Width field only resized
     // the <img> itself while its surrounding box (and click/selection area)
     // stayed full-width, making a resize look like it wasn't doing anything.
-    return `<div style="margin:0;width:${imgW};max-width:100%;overflow:hidden;${br}${bdr}${bg}"><img src="${src}" style="width:100%;height:${imgH};object-fit:${s.objectFit||"cover"};display:block;" /></div>`;
+    return `<div style="margin:0;line-height:0;font-size:0;width:${imgW};max-width:100%;overflow:hidden;${br}${bdr}${bg}"><img src="${src}" style="width:100%;height:${imgH};object-fit:${s.objectFit||"cover"};display:block;" /></div>`;
   }
   if (el.type === "badges") {
     const count = parseInt(s.badgeCount) || 4;
@@ -2036,7 +2049,7 @@ function renderElementInner(el, profile) {
     return `<div style="height:${s.spacerHeight||"12px"};"></div>`;
   }
   if (el.type === "button") {
-    return `<div style="margin-top:0;margin-bottom:4px;"><a href="${el.linkUrl||"#"}" style="display:inline-block;background:${s.backgroundColor||"#0051d5"};color:${s.color||"#fff"};padding:6px 14px;border-radius:${s.borderRadius||"4px"};font-size:${fSize};font-weight:bold;text-decoration:none;font-family:${ff};">${el.content||"Button"}</a></div>`;
+    return `<div style="margin-top:0;margin-bottom:4px;"><a href="${ensureHref(el.linkUrl)||"#"}" style="display:inline-block;background:${s.backgroundColor||"#0051d5"};color:${s.color||"#fff"};padding:6px 14px;border-radius:${s.borderRadius||"4px"};font-size:${fSize};font-weight:bold;text-decoration:none;font-family:${ff};">${el.content||"Button"}</a></div>`;
   }
   if (el.type === "dynamic") {
     switch (el.subtype) {
@@ -2117,12 +2130,15 @@ function renderElementInner(el, profile) {
       case "phone": return textLine(profile.phone||"(555) 000-0000");
       case "mobile": return textLine(profile.mobile||"(555) 000-0000");
       case "email": return textLine(`<a href="mailto:${profile.email}" style="color:${fColor};text-decoration:none;">${profile.email||"you@compass.com"}</a>`);
-      case "website": return textLine(profile.website||"compass.com");
+      case "website": {
+        const wsite = profile.website || "compass.com";
+        return textLine(`<a href="${ensureHref(profile.website||"compass.com")}" style="color:${fColor};text-decoration:none;">${wsite}</a>`);
+      }
       case "address": return textLine(profile.address||"123 Main St");
       case "bio": return textLine(profile.bio||"");
       case "social": {
         const socialStyle = s.socialStyle || "colored";
-        const iconSize = parseInt(s.iconSize) || 28;
+        const iconSize = parseInt(s.iconSize) || 16;
         const iconGap = parseInt(s.socialGap) || 5;
         const svgSz = Math.round(iconSize * 0.6);
         const hidden = s.hiddenSocials ? s.hiddenSocials.split(",") : [];
@@ -2177,12 +2193,12 @@ function renderElementInner(el, profile) {
             socialStyle === "black"   ? (blackImgs[soc.key]   || blackImgs.website)   :
                                         (whiteImgs[soc.key]   || whiteImgs.website)
           );
-          return `<a href="${soc.url}" target="_blank" style="display:inline-block;width:${iconSize}px;height:${iconSize}px;line-height:0;font-size:0;overflow:hidden;text-decoration:none;margin-right:${iconGap}px;"><img src="${src}" width="${iconSize}" height="${iconSize}" style="display:block;vertical-align:bottom;border:none;" /></a>`;
+          return `<a href="${ensureHref(soc.url)}" target="_blank" style="display:inline-block;width:${iconSize}px;height:${iconSize}px;line-height:0;font-size:0;overflow:hidden;text-decoration:none;margin-right:${iconGap}px;"><img src="${src}" width="${iconSize}" height="${iconSize}" style="display:block;vertical-align:bottom;border:none;" /></a>`;
         }).join("");
         const customLinks = (() => { try { return JSON.parse(s.customLinks || "[]"); } catch { return []; } })();
         const customBtns = customLinks.filter(l=>l.url&&l.url.trim()).map(l => {
-          if (l.iconUrl) return `<a href="${l.url}" target="_blank" title="${l.label||""}" style="display:inline-block;width:${iconSize}px;height:${iconSize}px;line-height:0;font-size:0;overflow:hidden;text-decoration:none;margin-right:${iconGap}px;"><img src="${l.iconUrl}" width="${iconSize}" height="${iconSize}" style="display:block;vertical-align:bottom;border:none;" /></a>`;
-          return `<a href="${l.url}" target="_blank" style="display:inline-flex;align-items:center;justify-content:center;width:${iconSize}px;height:${iconSize}px;border-radius:50%;background:#374151;color:#fff;text-decoration:none;margin-right:${iconGap}px;font-size:10px;font-family:sans-serif;">${(l.label||"?").slice(0,2).toUpperCase()}</a>`;
+          if (l.iconUrl) return `<a href="${ensureHref(l.url)}" target="_blank" title="${l.label||""}" style="display:inline-block;width:${iconSize}px;height:${iconSize}px;line-height:0;font-size:0;overflow:hidden;text-decoration:none;margin-right:${iconGap}px;"><img src="${l.iconUrl}" width="${iconSize}" height="${iconSize}" style="display:block;vertical-align:bottom;border:none;" /></a>`;
+          return `<a href="${ensureHref(l.url)}" target="_blank" style="display:inline-flex;align-items:center;justify-content:center;width:${iconSize}px;height:${iconSize}px;border-radius:50%;background:#374151;color:#fff;text-decoration:none;margin-right:${iconGap}px;font-size:10px;font-family:sans-serif;">${(l.label||"?").slice(0,2).toUpperCase()}</a>`;
         }).join("");
         // display:inline-block makes this row shrink-wrap its icons instead of
         // stretching to the full column width. That fixes the canvas selection
@@ -3107,7 +3123,7 @@ export default function App() {
         // defaults large (24px); everything else defaults to 11px. An explicit
         // styleOverride still wins last.
         fontSize: (type==="dynamic" && subtype==="name") ? "24px" : "11px",
-        color:"#374151",
+        color:"#000000",
         ...(type==="dynamic"&&subtype==="photo" ? {width:"90px",height:"90px",imageShape:"circle",objectFit:"cover"} : {}),
         ...(type==="dynamic"&&subtype==="logo" ? {width:"90px",height:"22px"} : {}),
         ...(type==="image" ? {width:"100%",height:"auto",objectFit:"cover"} : {}),
@@ -4110,6 +4126,7 @@ const BASIC_ELEMENTS = [
 const DYNAMIC_ELEMENTS = [
   {type:"dynamic", subtype:"name",    label:"Name",     icon:"badge"},
   {type:"dynamic", subtype:"title",   label:"Title",    icon:"work"},
+  {type:"dynamic", subtype:"company", label:"Company",  icon:"apartment"},
   {type:"dynamic", subtype:"phones",  label:"Phone",    icon:"phone"},
   {type:"dynamic", subtype:"email",   label:"Email",    icon:"email"},
   {type:"dynamic", subtype:"address", label:"Address",  icon:"location_on"},
@@ -4729,10 +4746,10 @@ function AdvancedSocialPanel({ el, profile, inputStyle, onUpdateElStyle, onUpdat
           <div>
             <span style={{ fontSize:14, fontWeight:700, color:"#6b7280", display:"block", marginBottom:5, textTransform:"uppercase", letterSpacing:0.6 }}>Icon Size</span>
             <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-              <input type="range" min="16" max="48" value={parseInt(s.iconSize)||28}
+              <input type="range" min="16" max="48" value={parseInt(s.iconSize)||16}
                 onChange={e=>onUpdateElStyle("iconSize",e.target.value)}
                 style={{ flex:1 }} />
-              <span style={{ fontSize:14, color:"#374151", minWidth:30 }}>{s.iconSize||28}px</span>
+              <span style={{ fontSize:14, color:"#374151", minWidth:30 }}>{s.iconSize||16}px</span>
             </div>
           </div>
 
@@ -5252,7 +5269,7 @@ function InlineEditableText({ el, profile, onChangeContent, onChangeProfileField
   const style = {
     fontFamily: ff,
     fontSize: s.fontSize || "11px",
-    color: (s.color||"#374151").replace("colored","#374151"),
+    color: (s.color||"#000000").replace("colored","#000000"),
     fontWeight: s.fontWeight || "400",
     textTransform: s.textTransform || "none",
     letterSpacing: s.letterSpacing || "normal",
@@ -6202,11 +6219,19 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                           // an inline-block row that's narrower than the column. The
                           // selection wrapper must shrink-wrap too, otherwise its
                           // outline draws a full-width box offset from the icons.
-                          // For left-aligned social we let the wrapper size to the
-                          // icons; for center/right we keep it block so the inner
-                          // align wrapper can still position the row.
-                          const socialAlign = (el.type === "dynamic" && el.subtype === "social") ? (el.style?.align || "left") : null;
+                          // For left-aligned social, the icons themselves still
+                          // shrink-wrap (so they sit left, not stretched), but the
+                          // OUTER selection wrapper is now always full-width block
+                          // for social -- so the editor selection box spans the
+                          // whole column and is easy to click, matching the other
+                          // elements. This is purely a canvas concern; the exported
+                          // signature is unaffected.
+                          const isSocialEl = (el.type === "dynamic" && el.subtype === "social");
+                          const socialAlign = isSocialEl ? (el.style?.align || "left") : null;
                           const isShrinkWrap = socialAlign === "left";
+                          // Inner content shrink-wraps for left align; outer wrapper
+                          // stays block for social so the selection box is full-width.
+                          const outerShrink = isShrinkWrap && !isSocialEl;
                           return (
                           <div key={el.id}
                             draggable
@@ -6217,7 +6242,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                               e.stopPropagation(); setSelectedRowId(row.id); setSelectedColId(col.id); setSelectedElId(el.id);
                               if (isImageType) { setEditorTab("media"); autoMediaRef.current = true; }
                             }}
-                            style={{ display: isShrinkWrap ? "inline-block" : "block", outline:`2px solid ${el.id===selectedElId?"#0051d5":"transparent"}`, borderRadius:3, cursor: isTextEditable ? "grab" : "pointer", position:"relative" }}>
+                            style={{ display: outerShrink ? "inline-block" : "block", ...(isSocialEl && socialAlign!=="left" ? { textAlign: socialAlign } : {}), outline:`2px solid ${el.id===selectedElId?"#0051d5":"transparent"}`, borderRadius:3, cursor: isTextEditable ? "grab" : "pointer", position:"relative" }}>
                             {/* Drop indicator line above */}
                             {dragOver?.rowId===row.id && dragOver?.colId===col.id && dragOver?.elIdx===eli && (
                               <div style={{ position:"absolute", top:-2, left:0, right:0, height:3, background:"#0051d5", borderRadius:2, zIndex:6, pointerEvents:"none" }} />

@@ -1,5 +1,5 @@
-SDS UPDATE - social alignment control + font defaults + prior batch
-===================================================================
+SDS UPDATE - six fixes (links, black text, company field, social, spacing)
+==========================================================================
 
 FILES IN THIS ZIP -- where each goes:
   src/SignatureStudio.jsx   -> replaces src/SignatureStudio.jsx
@@ -7,27 +7,28 @@ FILES IN THIS ZIP -- where each goes:
   api/delete-asset.js       -> NEW FILE, add to api/
   api/_verifyToken.js       -> NEW FILE, add to api/
 
-(Only src/SignatureStudio.jsx changed since the last batch. Re-dragging the
-api/ files is harmless -- identical.)
+(Only src/SignatureStudio.jsx changed since last batch; re-dragging api/ is
+harmless -- identical.)
 
-WHAT CHANGED THIS BUILD:
-  - SOCIAL ICONS: added a left/center/right Alignment control to the social
-    element panel (it was missing -- that's why alignment felt uncontrollable).
-    The row still shrink-wraps to the icons; the Alignment control slides that
-    group left/center/right within the column, live in the canvas and in the
-    export. (Note: this is the correct approach -- making the container itself
-    full-width would actually BREAK alignment, since text-align needs the row
-    to shrink-wrap to have room to move it.)
-  - FONT DEFAULTS for NEW elements: Name defaults to 24px; everything else
-    defaults to 11px (was 13px). Existing elements keep whatever size they
-    already have -- this only affects newly added elements. The render
-    fallback for any element with no stored size is now 11px too.
-
-STILL IN THIS BUILD (recent batches):
-  - Flush line spacing by default (add space via Padding).
-  - Media Library page: delete removes the R2 file + warns if image is in use.
-  - Image-block uploads add to the Media Library.
-  - Media icon below Build in the sidebar.
+THE SIX CHANGES:
+  1. Stray spacing around images removed (line-height:0/font-size:0 on the
+     image wrapper kills the inline descender gap). NOTE: the ~8px top/bottom
+     space on a ROW is intentional row padding -- adjust it in Row Settings >
+     Padding Top/Bottom if you want rows tighter.
+  2. Links now work without "https://www." -- any URL typed without a scheme
+     (e.g. "compass.com") is auto-prefixed with https:// at render. Applies to
+     the Website smart field (now clickable), buttons, social icons, and
+     custom links.
+  3. Signature text now defaults to TRUE BLACK (#000000) instead of dark gray.
+     Affects new elements and the render fallback; existing elements keep their
+     stored color.
+  4. NEW "Company" smart element -- addable from the Smart Fields list, pulls
+     from the profile Company field (was renderable in presets but not addable).
+  5. Social icons now DEFAULT to 16px (was 28px). Existing socials keep their
+     size; new ones and the panel default are 16.
+  6. Social selection box in the EDITOR now spans the full column width, so
+     it's easy to click. Icons still sit according to their alignment; the
+     exported signature is unchanged.
 
 DEPLOY (GitHub web UI):
   1. Unzip -> src/ and api/.
