@@ -1983,7 +1983,7 @@ function renderElementInner(el, profile) {
   // consistently honored across Gmail/Outlook/Apple Mail than block-element
   // margins, which is exactly the category of quirk (stripped/altered
   // properties, inconsistent collapsing) we kept running into with divs.
-  const cellBottomPad = s.marginBottom || "2px";
+  const cellBottomPad = s.marginBottom || "0px";
   const baseStyle = `font-family:${ff};font-size:${fSize};color:${fColor};font-weight:${fw};${s.textAlign?'text-align:'+s.textAlign+';':''}${s.textTransform?'text-transform:'+s.textTransform+';':''}${s.letterSpacing?'letter-spacing:'+s.letterSpacing+';':''}line-height:${lineHeightPx};${s.fontStyle?'font-style:'+s.fontStyle+';':''}padding:0 0 ${cellBottomPad} 0;mso-padding-alt:0 0 ${cellBottomPad} 0;${bgCss}${borderCss}`;
   // Wraps a line of text in its own single-row, single-cell table -- the
   // email-safe equivalent of a <div>, but immune to the div-stacking quirks
@@ -5260,15 +5260,14 @@ function InlineEditableText({ el, profile, onChangeContent, onChangeProfileField
     textAlign: s.textAlign || "left",
     fontStyle: s.fontStyle || "normal",
     // Spacing must use the SAME rule as the export renderer, which applies
-    // `padding-bottom: s.marginBottom || "2px"` and zero top spacing. These
-    // were previously followed by a `margin: "2px 0"` shorthand, which -- being
-    // declared last in the same style object -- silently overrode BOTH of them
-    // and forced a flat 2px gap on every line, discarding whatever spacing the
-    // designer had actually set. That made the live canvas disagree with the
-    // exported/pasted result by ~15px on a typical signature, since the export
-    // was honoring the real stored values the whole time.
+    // `padding-bottom: s.marginBottom || "0px"` and zero top spacing. Default
+    // is 0 so text lines sit flush; users add space via the Padding controls.
+    // (This was previously followed by a `margin: "2px 0"` shorthand, which --
+    // being declared last in the same style object -- silently overrode BOTH
+    // and forced a flat 2px gap on every line, discarding the designer's real
+    // spacing. Removing that shorthand made canvas and export agree.)
     marginTop: 0,
-    marginBottom: s.marginBottom || "2px",
+    marginBottom: s.marginBottom || "0px",
     // Padding, background, and border were only ever applied in the export
     // renderer (renderElementHTML/renderElementInner's baseStyle) -- this live
     // canvas view builds its own separate style object and never read them, so
