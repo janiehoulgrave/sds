@@ -1,42 +1,35 @@
-SDS UPDATE - Media Library migrated to Firestore (cross-device)
-===============================================================
+SDS UPDATE - "image missing" placeholder for broken/deleted images
+==================================================================
 
-*** TWO-PART DEPLOY -- DO THE RULES FIRST ***
-
-PART 1 (do this FIRST, before the code goes live):
-  Update your Firestore security rules. The new media library needs a rule
-  for the users/{uid}/media subcollection -- WITHOUT it, saves are DENIED and
-  the library will appear empty with console errors.
-    - firestore.rules in this zip is the full, updated ruleset.
-    - Firebase console -> your project -> Firestore Database -> Rules tab ->
-      paste it over the existing rules -> Publish. (Takes effect immediately.)
-  The only change from your current rules is a new match /media/{mediaId}
-  block, with the same per-user isolation as signatures.
-
-PART 2 (the code):
+FILE THAT CHANGED:
   src/SignatureStudio.jsx   -> replaces src/SignatureStudio.jsx
-  api/*                     -> unchanged this batch (included for a complete
-                               set; re-dragging is harmless)
+  (api/* unchanged; included for a complete set, re-dragging is harmless.)
 
 WHAT CHANGED:
-  - The media library now loads from and saves to Firestore
-    (users/{uid}/media), exactly like profiles and signatures. Uploads now
-    follow an agent across devices and survive a browser cache clear.
-  - Automatic one-time migration: the first time an existing agent loads the
-    app, any media still in their browser's localStorage is copied up into
-    Firestore. No action needed from them; nothing is lost.
-  - localStorage is kept as a fast-paint cache only; Firestore is the source
-    of truth.
+  - When an image in a signature fails to load in the EDITOR canvas (its R2
+    file was deleted, an old base64 got cleared, or a link died), it now shows
+    a gentle dashed "Image missing -- re-upload to fix" placeholder instead of
+    the browser's broken-image icon. Covers the main image, headshot, logo,
+    and badges.
+  - The Media Library grid does the same: a thumbnail that can't load shows a
+    small "Image missing" note instead of a broken box.
 
-DEPLOY ORDER:
-  1. Publish the Firestore rules (Part 1). <-- don't skip or do second
+IMPORTANT -- CANVAS ONLY:
+  This is purely an editor-side nicety. The exported/pasted signature HTML is
+  a plain string and is completely unchanged -- no error handlers or
+  placeholders ever go into an email. If an image is genuinely deleted, the
+  email will still show a broken image (nothing we can do about already-sent
+  mail); this just makes the EDITOR tell the agent clearly so they can
+  re-upload before sending again.
+
+DEPLOY (GitHub web UI):
+  1. Unzip -> src/ (and api/).
   2. GitHub: drag src/ into repo root (overwrites SignatureStudio.jsx). Commit.
   3. Vercel auto-deploys. Hard-refresh (Cmd+Shift+R).
 
 TEST:
-  - Upload an image on one browser, then open the app in another browser (or
-    incognito, signed in as the same account) -> it should appear.
-  - Check the browser console for any "Failed to save media item to Firestore"
-    errors -> if you see those, the rules weren't published.
+  - Put an uploaded image in a signature, then delete that image from the
+    Media Library, then reopen/!view the signature -> you should see the
+    "Image missing" placeholder in the canvas, not a broken icon.
 
-ENV VAR: none new.
+ENV VAR: none new. No Firestore rules change.

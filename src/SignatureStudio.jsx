@@ -6290,7 +6290,34 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                                 onBlurEl={(e)=>{ const rt = e && e.relatedTarget; if (rt && rt.closest && rt.closest('[data-format-toolbar]')) return; setFocusedElId(null); }}
                               />
                             ) : (
-                              <div style={ isShrinkWrap ? { display:"inline-block" } : undefined } dangerouslySetInnerHTML={{ __html: renderElementHTML(el, profile) }} />
+                              <div
+                                style={ isShrinkWrap ? { display:"inline-block" } : undefined }
+                                onErrorCapture={(e) => {
+                                  // If an image in this element fails to load
+                                  // (deleted from R2, a cleared old base64, a
+                                  // dead link), swap it for a gentle "image
+                                  // missing" placeholder instead of the
+                                  // browser's broken-image icon. Canvas-only --
+                                  // the exported HTML string never mounts this,
+                                  // so nothing about the paste/email changes.
+                                  const img = e.target;
+                                  if (!img || img.tagName !== "IMG" || img.dataset.missingHandled) return;
+                                  img.dataset.missingHandled = "1";
+                                  const w = img.offsetWidth || img.width || 120;
+                                  const h = img.offsetHeight || img.height || 80;
+                                  const ph = document.createElement("div");
+                                  ph.style.cssText =
+                                    "display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;" +
+                                    `width:${w}px;height:${Math.max(h,48)}px;box-sizing:border-box;` +
+                                    "background:#f9fafb;border:1px dashed #d1d5db;border-radius:6px;" +
+                                    "color:#9ca3af;font-size:11px;font-family:'Compass Sans','Hanken Grotesk',sans-serif;text-align:center;padding:6px;line-height:1.3;";
+                                  ph.innerHTML =
+                                    '<span style="font-size:18px;line-height:1;">&#128247;</span>' +
+                                    '<span>Image missing<br/>re-upload to fix</span>';
+                                  if (img.parentNode) img.parentNode.replaceChild(ph, img);
+                                }}
+                                dangerouslySetInnerHTML={{ __html: renderElementHTML(el, profile) }}
+                              />
                             )}
                           </div>
                           );
@@ -7200,7 +7227,8 @@ function MediaLibraryPage({ mediaLibrary, signatures, onDelete, onAddMedia, onNa
           {mediaLibrary.map(item => (
             <div key={item.id} style={{ background:"#fff", border:"1px solid #e5e7eb", borderRadius:10, overflow:"hidden", display:"flex", flexDirection:"column" }}>
               <div style={{ position:"relative", height:150, background:"#f9fafb", display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden" }}>
-                <img src={item.url} alt={item.name || ""} style={{ maxWidth:"100%", maxHeight:"100%", objectFit:"contain", display:"block" }} referrerPolicy="no-referrer" />
+                <img src={item.url} alt={item.name || ""} style={{ maxWidth:"100%", maxHeight:"100%", objectFit:"contain", display:"block" }} referrerPolicy="no-referrer"
+                  onError={(e)=>{ const img=e.target; if(img.dataset.missingHandled) return; img.dataset.missingHandled="1"; img.style.display="none"; const ph=document.createElement("div"); ph.style.cssText="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:#9ca3af;font-size:11px;text-align:center;padding:8px;font-family:inherit;line-height:1.3;"; ph.innerHTML='<span style="font-size:22px;line-height:1;">&#128247;</span><span>Image missing</span>'; if(img.parentNode) img.parentNode.appendChild(ph); }} />
                 <button onClick={() => askDelete(item)} title="Delete"
                   style={{ position:"absolute", top:6, right:6, width:28, height:28, borderRadius:6, border:"none", background:"rgba(17,24,39,0.6)", color:"#fff", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", padding:0 }}>
                   <Icon name="delete" size={16} color="#fff" />
