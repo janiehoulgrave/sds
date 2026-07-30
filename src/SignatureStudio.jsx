@@ -2184,7 +2184,14 @@ function renderElementInner(el, profile) {
           if (l.iconUrl) return `<a href="${l.url}" target="_blank" title="${l.label||""}" style="display:inline-block;width:${iconSize}px;height:${iconSize}px;line-height:0;font-size:0;overflow:hidden;text-decoration:none;margin-right:${iconGap}px;"><img src="${l.iconUrl}" width="${iconSize}" height="${iconSize}" style="display:block;vertical-align:bottom;border:none;" /></a>`;
           return `<a href="${l.url}" target="_blank" style="display:inline-flex;align-items:center;justify-content:center;width:${iconSize}px;height:${iconSize}px;border-radius:50%;background:#374151;color:#fff;text-decoration:none;margin-right:${iconGap}px;font-size:10px;font-family:sans-serif;">${(l.label||"?").slice(0,2).toUpperCase()}</a>`;
         }).join("");
-        return `<div style="height:${iconSize}px;line-height:0;font-size:0;padding-top:${s.paddingTop||'0px'};margin-top:0;margin-bottom:${s.marginBottom||'0px'};mso-padding-alt:${s.paddingTop||'0px'} 0 0 0;mso-margin-top-alt:0;mso-margin-bottom-alt:${s.marginBottom||'0px'};">${btns}${customBtns}</div>`;
+        // display:inline-block makes this row shrink-wrap its icons instead of
+        // stretching to the full column width. That fixes the canvas selection
+        // outline, which wraps this element and otherwise drew a full-width box
+        // offset from the visible icons until an interaction forced a reflow.
+        // It's also correct for export: a shrink-wrapped inline-block row of
+        // icons is standard, and it lets the align wrapper's text-align actually
+        // center/right-position the icons (a full-width block ignored it).
+        return `<div style="display:inline-block;height:${iconSize}px;line-height:0;font-size:0;padding-top:${s.paddingTop||'0px'};margin-top:0;margin-bottom:${s.marginBottom||'0px'};mso-padding-alt:${s.paddingTop||'0px'} 0 0 0;mso-margin-top-alt:0;mso-margin-bottom-alt:${s.marginBottom||'0px'};">${btns}${customBtns}</div>`;
       }
       default: return textLine(interpolate("{{"+el.subtype+"}}", profile));
     }
@@ -2207,7 +2214,14 @@ function renderElementHTML(el, profile) {
   // render branch) so every element -- social icons, photos, badges, buttons,
   // dividers, not just text -- respects the Padding control in the panel.
   const padCss = `${s.paddingTop?'padding-top:'+s.paddingTop+';':''}${s.paddingBottom?'padding-bottom:'+s.paddingBottom+';':''}${s.paddingLeft?'padding-left:'+s.paddingLeft+';':''}${s.paddingRight?'padding-right:'+s.paddingRight+';':''}`;
-  if (padCss) html = `<div style="${padCss}">${html}</div>`;
+  // Social renders an inline-block row of icons. Its padding wrapper must ALSO
+  // shrink-wrap (display:inline-block), otherwise it stretches to full column
+  // width and the canvas selection outline draws a full-width box offset from
+  // the icons. Only left-aligned social shrink-wraps here; center/right keep a
+  // full-width block so the text-align wrapper above can position the row.
+  const isSocial = el.type === "dynamic" && el.subtype === "social";
+  const socialShrink = isSocial && (!align || align === "left");
+  if (padCss) html = `<div style="${socialShrink ? "display:inline-block;" : ""}${padCss}">${html}</div>`;
   return html;
 }
 
@@ -3400,7 +3414,7 @@ export default function App() {
                   Upload
                   <input type="file" accept="image/*" style={{ display:"none" }} onChange={e=>{
                     const f=e.target.files?.[0]; if(!f) return;
-                    normalizeImageFile(f, (dataUrl)=>{ saveProfile({...profile, logoUrl:dataUrl}); addToMediaLibrary(dataUrl, f.name); }, 360, {png:true});
+                    handleImageFile(f, (dataUrl)=>{ saveProfile({...profile, logoUrl:dataUrl}); addToMediaLibrary(dataUrl, f.name); }, 360, {png:true}, auth);
                   }} />
                 </label>
               </div>
@@ -4669,7 +4683,7 @@ function AdvancedSocialPanel({ el, profile, inputStyle, onUpdateElStyle, onUpdat
   // Custom icon uploads (stored per-platform in style)
   function handleIconUpload(platform, file) {
     if (!file) return;
-    normalizeImageFile(file, (dataUrl) => { onUpdateElStyle(`customIcon_${platform}`, dataUrl); }, 120, {png:true});
+    handleImageFile(file, (dataUrl) => { onUpdateElStyle(`customIcon_${platform}`, dataUrl); }, 120, {png:true}, auth);
   }
 
   const platforms = ["instagram","facebook","twitter","linkedin","website"];
@@ -4763,7 +4777,7 @@ function AdvancedSocialPanel({ el, profile, inputStyle, onUpdateElStyle, onUpdat
                       <input type="file" accept="image/*" style={{ display:"none" }}
                         onChange={e=>{
                           const f=e.target.files?.[0]; if(!f) return;
-                          normalizeImageFile(f, (dataUrl) => updateCustomLink(i,"iconUrl",dataUrl), 120, {png:true});
+                          handleImageFile(f, (dataUrl) => updateCustomLink(i,"iconUrl",dataUrl), 120, {png:true}, auth);
                         }} />
                     </label>
                     {link.iconUrl && <button onClick={()=>updateCustomLink(i,"iconUrl","")} style={{ fontSize:14, color:"#6b7280", background:"none", border:"none", cursor:"pointer", fontFamily:"inherit" }}>Remove</button>}
@@ -4881,6 +4895,82 @@ function normalizeImageFile(file, cb, maxDim, opts) {
     img.src = e.target.result;
   };
   reader.readAsDataURL(file);
+}
+
+// Largest animated GIF a regular agent may upload. Kept modest on purpose:
+// a tasteful signature GIF (a small logo animation or subtle banner) fits
+// comfortably under this, while a giant screen-recording is blocked before it
+// ever reaches storage. Email clients don't clip large images the way they
+// clip large HTML, but a multi-megabyte GIF loads slowly and looks
+// unprofessional in a signature.
+const MAX_GIF_BYTES = 2 * 1024 * 1024; // 2 MB
+
+// Uploads an animated GIF (or any file we must keep byte-for-byte) to R2 and
+// returns its public URL. Unlike normalizeImageFile, this deliberately does
+// NOT pass the file through a canvas -- a canvas only captures a single frame,
+// so re-encoding a GIF that way would silently kill the animation. The raw
+// bytes go straight to R2 via the same presigned-URL serverless function the
+// banner uploader uses, authorized here by the signed-in user's Firebase ID
+// token rather than the admin secret.
+async function uploadUserAssetToR2(file, auth) {
+  const user = auth && auth.currentUser;
+  if (!user) throw new Error("Please sign in again to upload.");
+  const idToken = await user.getIdToken();
+
+  const res = await fetch("/api/upload-url", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ idToken, filename: file.name, contentType: file.type }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || "Could not get upload permission.");
+  }
+  const { uploadUrl, publicUrl } = await res.json();
+
+  const putRes = await fetch(uploadUrl, {
+    method: "PUT",
+    headers: { "Content-Type": file.type },
+    body: file,
+  });
+  if (!putRes.ok) throw new Error("Upload to storage failed.");
+
+  return publicUrl;
+}
+
+// Single entry point every image <input> onChange routes through, with the
+// SAME signature as normalizeImageFile so it's a drop-in replacement at each
+// call site. Animated GIFs branch off to R2 (preserving animation) and call
+// back with a hosted URL; everything else keeps flowing through
+// normalizeImageFile exactly as before. `auth` is threaded through so the GIF
+// path can mint a Firebase ID token.
+function handleImageFile(file, cb, maxDim, opts, auth) {
+  if (!file) return;
+
+  const isGif =
+    file.type === "image/gif" || /\.gif$/i.test(file.name || "");
+
+  if (!isGif) {
+    // Unchanged path for JPEG/PNG/etc.
+    normalizeImageFile(file, cb, maxDim, opts);
+    return;
+  }
+
+  // --- animated GIF path ---
+  if (file.size > MAX_GIF_BYTES) {
+    const mb = (file.size / (1024 * 1024)).toFixed(1);
+    alert(
+      `GIFs must be under 2 MB to keep your signature fast and email-friendly. ` +
+        `This one is ${mb} MB. Try a smaller or more compressed GIF.`
+    );
+    return;
+  }
+
+  uploadUserAssetToR2(file, auth)
+    .then((publicUrl) => cb(publicUrl))
+    .catch((err) => {
+      alert(err.message || "Sorry, that GIF could not be uploaded.");
+    });
 }
 
 function normalizeDimension(raw) {
@@ -5436,10 +5526,10 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
   function handleMediaUpload(e) {
     const file = e.target.files?.[0];
     if (!file) return;
-    normalizeImageFile(file, (dataUrl) => {
+    handleImageFile(file, (dataUrl) => {
       onAddMedia(dataUrl, file.name);
       handleMediaClick(dataUrl);
-    }, 600);
+    }, 600, undefined, auth);
     e.target.value = "";
   }
 
@@ -6046,6 +6136,15 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                         {col.elements.map((el, eli) => {
                           const isTextEditable = el.type === "text" || el.subtype === "phones" || (el.type === "dynamic" && DYNAMIC_PROFILE_FIELD[el.subtype]);
                           const isImageType = el.type === "image" || (el.type === "dynamic" && el.subtype === "photo");
+                          // Social (and other shrink-wrapping inline blocks) render
+                          // an inline-block row that's narrower than the column. The
+                          // selection wrapper must shrink-wrap too, otherwise its
+                          // outline draws a full-width box offset from the icons.
+                          // For left-aligned social we let the wrapper size to the
+                          // icons; for center/right we keep it block so the inner
+                          // align wrapper can still position the row.
+                          const socialAlign = (el.type === "dynamic" && el.subtype === "social") ? (el.style?.align || "left") : null;
+                          const isShrinkWrap = socialAlign === "left";
                           return (
                           <div key={el.id}
                             draggable
@@ -6056,7 +6155,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                               e.stopPropagation(); setSelectedRowId(row.id); setSelectedColId(col.id); setSelectedElId(el.id);
                               if (isImageType) { setEditorTab("media"); autoMediaRef.current = true; }
                             }}
-                            style={{ outline:`2px solid ${el.id===selectedElId?"#0051d5":"transparent"}`, borderRadius:3, cursor: isTextEditable ? "grab" : "pointer", position:"relative" }}>
+                            style={{ display: isShrinkWrap ? "inline-block" : "block", outline:`2px solid ${el.id===selectedElId?"#0051d5":"transparent"}`, borderRadius:3, cursor: isTextEditable ? "grab" : "pointer", position:"relative" }}>
                             {/* Drop indicator line above */}
                             {dragOver?.rowId===row.id && dragOver?.colId===col.id && dragOver?.elIdx===eli && (
                               <div style={{ position:"absolute", top:-2, left:0, right:0, height:3, background:"#0051d5", borderRadius:2, zIndex:6, pointerEvents:"none" }} />
@@ -6070,7 +6169,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                                 onBlurEl={(e)=>{ const rt = e && e.relatedTarget; if (rt && rt.closest && rt.closest('[data-format-toolbar]')) return; setFocusedElId(null); }}
                               />
                             ) : (
-                              <div dangerouslySetInnerHTML={{ __html: renderElementHTML(el, profile) }} />
+                              <div style={ isShrinkWrap ? { display:"inline-block" } : undefined } dangerouslySetInnerHTML={{ __html: renderElementHTML(el, profile) }} />
                             )}
                           </div>
                           );
@@ -6170,7 +6269,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                 {selectedEl.content && <img src={selectedEl.content} alt="" style={{ width:"100%", height:60, objectFit:"cover", borderRadius:4, marginBottom:6, border:"1px solid #e5e7eb" }} />}
                 <label style={{ display:"block", width:"100%", background:"#f9fafb", border:"1px solid #e5e7eb", borderRadius:6, padding:"7px 8px", fontSize:15, cursor:"pointer", textAlign:"center", fontFamily:"inherit" }}>
                   Replace Image
-                  <input type="file" accept="image/*" style={{ display:"none" }} onChange={e=>{const f=e.target.files?.[0];if(!f)return;normalizeImageFile(f, (dataUrl)=>onUpdateElContent(dataUrl), 600);}} />
+                  <input type="file" accept="image/*,image/gif" style={{ display:"none" }} onChange={e=>{const f=e.target.files?.[0];if(!f)return;handleImageFile(f, (dataUrl)=>onUpdateElContent(dataUrl), 600, undefined, auth);}} />
                 </label>
                 <LinkedDimensionPair propLabel={propLabel} inputStyle={inputStyle}
                   widthValue={selectedEl.style?.width} widthDefault="100%"
@@ -6227,7 +6326,10 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                     <input type="file" accept="image/*" style={{ display:"none" }} onChange={e=>{
                       const f=e.target.files?.[0]; if(!f) return;
                       const isPhoto = selectedEl.subtype==="photo";
-                      normalizeImageFile(f, (dataUrl)=>{ onAddMedia(dataUrl, f.name); onUpdateProfileField(isPhoto?"photoUrl":"logoUrl", dataUrl); }, isPhoto?480:360, isPhoto?{quality:0.88, square:true}:{png:true});
+                      const cb = (dataUrl)=>{ onAddMedia(dataUrl, f.name); onUpdateProfileField(isPhoto?"photoUrl":"logoUrl", dataUrl); };
+                      // Headshots stay on the square-crop path (no GIFs); logos may be animated.
+                      if (isPhoto) normalizeImageFile(f, cb, 480, {quality:0.88, square:true});
+                      else handleImageFile(f, cb, 360, {png:true}, auth);
                     }} />
                   </label>
                   {selectedEl.subtype==="photo" && profile.photoUrl && (
@@ -6519,7 +6621,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                           <input type="file" accept="image/*" style={{ display:"none" }}
                             onChange={e=>{
                               const f=e.target.files?.[0]; if(!f) return;
-                              normalizeImageFile(f, (dataUrl) => { onUpdateElStyle(`badge_${i}`, dataUrl); onAddMedia(dataUrl, f.name); }, 140, {png:true});
+                              handleImageFile(f, (dataUrl) => { onUpdateElStyle(`badge_${i}`, dataUrl); onAddMedia(dataUrl, f.name); }, 140, {png:true}, auth);
                             }} />
                           <div style={{ fontSize:15, color:"#0051d5", textAlign:"center", marginTop:2, cursor:"pointer" }}
                             onClick={e=>{ e.preventDefault(); e.stopPropagation(); setPendingBadgeSlot({elId: selectedEl.id, index: i}); setEditorTab("media"); }}>
@@ -6812,10 +6914,13 @@ function ProfileForm({ profile, onSave, onNavigate, onAddMedia }) {
     // soft/blurry. Still comfortably small enough to fit in a Firestore
     // document alongside the rest of the profile.
     const isPhoto = field === "photoUrl";
-    normalizeImageFile(file, (dataUrl)=>{
+    const cb = (dataUrl)=>{
       setDraft(prev => ({...prev, [field]: dataUrl}));
       if (onAddMedia) onAddMedia(dataUrl, file.name);
-    }, isPhoto?480:360, isPhoto?{quality:0.88, square:true}:{png:true});
+    };
+    // Headshots stay on the square-crop path (no GIFs); logos may be animated.
+    if (isPhoto) normalizeImageFile(file, cb, 480, {quality:0.88, square:true});
+    else handleImageFile(file, cb, 360, {png:true}, auth);
   }
 
   const PHOTO_PH = PROFILE_PHOTO_PH;
