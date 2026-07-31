@@ -1,24 +1,25 @@
 SignatureStudio update
 =======================
 
-FIX: DEFAULT SPACE ABOVE/BELOW ROWS (src/ only -- no API changes)
+FIX: CIRCLE PHOTOS RENDERING AS OVALS (src/ only -- no API changes)
 
-Rows had a built-in default padding of 8px top and 8px bottom, applied to
-both the live canvas and the exported signature. On a single-row signature
-that showed up as a strip of empty space above and below the content inside
-the row's selection box.
+A circular photo turned into an oval whenever its width and height were
+unequal (e.g. 100px wide x 128px tall). Previously the shape only controlled
+corner rounding, so an unequal box with border-radius:50% drew an ellipse.
+Unequal values can slip in from a template or from editing width/height with
+the size link turned off, which is what caused the "sudden" distortion.
 
-Row padding now defaults to 0 top and 0 bottom, on both the canvas and the
-pasted/emailed signature (they stay in sync). Rows are tight by default, and
-you can still add breathing room deliberately per row via Row Settings >
-Padding Top / Padding Bottom.
+Now, when a photo's shape is Circle, the height is forced to match the width
+so it is always a true, round circle -- on both the live canvas and the
+pasted/emailed signature. The Circle button in the panel also snaps both
+inputs to the width to stay consistent with what you see.
 
-Note: this also tightens any existing rows that never had a padding value
-set -- they'll now sit flush instead of with the old 8px. If a specific row
-needs space, set it explicitly in Row Settings.
+If you actually want an oval, use the Square shape with a 50% corner radius
+(All corners at once) -- that keeps width and height independent.
 
-(Per-element padding, like the 12px on a photo, is separate and unchanged --
-adjust that in the element's own Padding fields.)
+Nothing else about photo sizing changed: Square photos keep fully independent
+width and height, and borders still sit inside the box so they never distort
+the shape.
 
 DEPLOY
 ------

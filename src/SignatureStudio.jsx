@@ -2075,8 +2075,15 @@ function renderElementInner(el, profile) {
         // become a rectangle: set width and height to different values and the shape
         // preset still applies. object-fit:cover crops to fill the box without
         // squishing; max-width guards against overflow past a narrow column.
+        // For a SQUARE shape, width and height are fully independent (that's how
+        // you make a rectangle). For a CIRCLE, though, an unequal box renders as
+        // an oval, which is almost never what someone wants when they pick
+        // "Circle" -- and stray unequal values can sneak in from templates or an
+        // unlinked width/height edit. So when the shape is circle we force the
+        // height to match the width, guaranteeing an actual round circle. Users
+        // who genuinely want an oval can use Square with a 50% corner radius.
         const w = s.width || "90px";
-        const h = s.height || "90px";
+        const h = isCircle ? w : (s.height || "90px");
         const wNum = parseInt(w) || 90;
         const hNum = parseInt(h) || 90;
         // Sizing lives directly on the <img> itself now -- both the HTML
@@ -6637,15 +6644,15 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                         return (
                           <button key={opt.val} onClick={()=>{
                             if (opt.val === "circle") {
-                              // A perfect circle needs EQUAL width and height --
-                              // border-radius:50% on a non-square box (e.g. width
-                              // 100% of a narrow column, height 160px) renders as
-                              // an oval. Snap both to the same pixel value so
-                              // clicking Circle always actually gives a circle.
+                              // A perfect circle needs EQUAL width and height.
+                              // The renderer draws a circle as width x width, so
+                              // snap both inputs to the WIDTH here to stay in sync
+                              // (falling back to height, then 90, if width isn't a
+                              // usable pixel value).
                               const hNum = parseFloat(selectedEl.style?.height);
                               const wNum = parseFloat(selectedEl.style?.width);
                               const wIsPx = String(selectedEl.style?.width||"").includes("px");
-                              const size = (hNum && !isNaN(hNum)) ? hNum : (wIsPx && wNum && !isNaN(wNum)) ? wNum : 90;
+                              const size = (wIsPx && wNum && !isNaN(wNum)) ? wNum : (hNum && !isNaN(hNum)) ? hNum : 90;
                               onUpdateElStyleMulti({ imageShape:"circle", width:`${size}px`, height:`${size}px` });
                             } else {
                               onUpdateElStyle("imageShape",opt.val);
