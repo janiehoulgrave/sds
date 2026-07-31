@@ -1,28 +1,50 @@
 SignatureStudio update
 =======================
 
-FIX: CENTER ALIGNMENT NOT ACTUALLY CENTERING IMAGES/LOGOS (src/ only -- no API changes)
+PUBLISH TEMPLATES TO ALL USERS (admin-only)  --  src/ + firestore.rules
 
-Selecting "Center" (or "Right") on a logo or image in a column didn't truly
-center it when the element also had left/right padding. The horizontal
-padding shrank the centering area on one side, so a "centered" logo sat off
-to the left. In the screenshot the Logo had 23px of left padding, which
-pulled it left of the column's true center.
+You can now publish your templates to every agent straight from admin mode,
+with no code deploy and no JSON export. This replaces the old export-and-bake
+workflow.
 
-Fix: for an image or logo that is centered or right-aligned, horizontal
-(left/right) padding is now ignored, since it directly contradicts the
-alignment. Top/bottom padding still applies, and padding on text and other
-element types is unchanged. "Center" now actually centers the image in its
-column, on both the canvas and the pasted signature.
+HOW IT WORKS
+  - Admin controls (including Publish) are locked to your account only
+    (UID 1idnAdK800UUzg7xW9hmH76OgH82). No other signed-in user can open admin
+    mode or publish, even with the passphrase.
+  - On the Templates screen in admin mode you'll see a blue "Publish to all
+    users" button, plus a "Last published ..." timestamp.
+  - Publishing writes your current templates (your built-in tweaks + any custom
+    templates) to a shared Firestore doc: shared/publishedTemplates.
+  - Every user loads that shared doc on startup, so your published templates
+    become their defaults automatically.
+  - Publishing asks for confirmation first, and is cumulative -- it merges over
+    whatever was published before, so it never silently drops earlier work.
+  - Your own unpublished local edits still layer on top for YOUR preview, so you
+    can tweak, review, then publish when ready. After publishing, your local
+    override layer is cleared (since it's now the shared default).
 
-If you want to nudge a centered image sideways, change its column width or
-the column gap rather than adding element padding -- padding and centering
-work against each other by nature.
+SECURITY
+  Two locks: the UI only shows admin/publish to your account, AND the Firestore
+  rules only allow WRITES to shared/* from your UID. Reads are open to all
+  signed-in @compass.com users. So even someone bypassing the front-end cannot
+  publish.
 
-DEPLOY
-------
-1. Drag the src/ folder into your GitHub repo root and commit.
-2. Let Vercel finish building.
-3. Hard-refresh sds.janienation.com (Cmd+Shift+R).
+DEPLOY -- TWO STEPS, RULES FIRST
+  1. Publish the Firestore rules FIRST (this is required or publishing will be
+     denied):
+       - Firebase console -> Firestore Database -> Rules
+       - Replace the rules with the contents of firestore.rules from this zip
+       - Click Publish
+  2. Then deploy the code:
+       - Drag the src/ folder into your GitHub repo root and commit
+       - Let Vercel build
+       - Hard-refresh sds.janienation.com (Cmd+Shift+R)
 
-No Firebase or API changes are needed.
+FIRST PUBLISH
+  After both steps, open Templates in admin mode and click "Publish to all
+  users" once to push your current templates live for everyone. Confirm the
+  "Last published" timestamp updates.
+
+NOTE
+  The old "Export JSON" button is still there as a backup, but you shouldn't
+  need it anymore.
