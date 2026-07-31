@@ -1,30 +1,29 @@
 SignatureStudio update
 =======================
 
-COMPASS SANS LIGHT & MEDIUM ARE NOW SELECTABLE (src/ only -- no API changes)
+THREE CHANGES (src/ only -- no API changes)
 
-When you provided the Compass fonts, Compass Sans came in several weights
-(Light, Regular, Medium, Bold). The font CSS already declared all four, but
-the editor only had a Bold on/off button, so Light and Medium could never
-actually be chosen.
+1. FONT FALLBACKS UPDATED
+   - Compass Sans  -> DM Sans (Google Font, weights 300-700), Hanken Grotesk
+     kept as a secondary fallback. Light and Medium render in fallback.
+   - Compass Serif -> Georgia (system serif), Times New Roman as backstop.
+     No web font needed for the serif now.
+   - Compass Display -> Tenor Sans (unchanged from last update), Hanken behind.
+   Source Serif 4 is no longer loaded. DM Sans is now loaded in the editor and
+   in the exported signature's @import.
 
-Added a "Font weight" dropdown to the text formatting toolbar (right after
-the B / I / U buttons). Select a text element and pick:
-  - Light   (300)
-  - Regular (400)
-  - Medium  (500)
-  - Bold    (700)
+2. ADD-COLUMN BUTTON
+   When a row already has 2+ columns, the "+" add-column button is now a small
+   square the same height as the Col 1 / Col 2 blocks, instead of a tall strip.
+   (With a single column it still shows the full "Add Column" label.)
 
-The Bold button still works and stays in sync (Bold = weight 700). The
-chosen weight shows on the live canvas and carries through to the pasted /
-emailed signature.
-
-One caveat worth knowing: the Compass fonts are referenced by name
-(local()), not embedded, so Light and Medium display exactly as intended
-only on machines that have the Compass fonts installed. On machines without
-them, the browser falls back to the nearest weight of the backup font
-(Hanken Grotesk), which may look closer to Regular or Bold. This is the same
-way Bold has always behaved, just now with more weight options.
+3. DRAG A ROW INTO POSITION
+   You can now drag a layout tile (1 / 2 / 3 / 4 Col) from the sidebar and drop
+   it ABOVE or BELOW any existing row, not just at the end. While you drag a
+   layout tile, thin drop zones open up in the gaps between rows (and above the
+   first / below the last row); a blue line shows where the new row will land.
+   Dropping in empty canvas space still appends to the end as before, and
+   clicking a layout tile still adds to the end as before.
 
 DEPLOY
 ------

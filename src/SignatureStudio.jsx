@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, Fragment } from "react";
 import { collection, onSnapshot, addDoc, serverTimestamp, doc, getDoc, setDoc, getDocs, deleteDoc } from "firebase/firestore";
 import { db, auth } from "./firebase.js";
 
@@ -1972,12 +1972,12 @@ function renderElementInner(el, profile) {
             .replace(/\^([^^]+)\^/g, "<sup style=\"font-size:0.6em;vertical-align:super;\">$1</sup>");
   }
   const FF_MAP = {
-    "compass-sans":    "'Compass Sans','Hanken Grotesk',sans-serif",
-    "compass-display": "'Compass Display','Georgia',serif",
-    "compass-serif":   "'Compass Serif','Georgia',serif",
+    "compass-sans":    "'Compass Sans','DM Sans','Hanken Grotesk',sans-serif",
+    "compass-display": "'Compass Display','Tenor Sans','Hanken Grotesk',sans-serif",
+    "compass-serif":   "'Compass Serif','Georgia','Times New Roman',serif",
     "serif":           "'Georgia','Times New Roman',serif",
     "mono":            "monospace",
-    "sans":            "'Compass Sans','Hanken Grotesk',sans-serif",
+    "sans":            "'Compass Sans','DM Sans','Hanken Grotesk',sans-serif",
   };
   const ff = FF_MAP[s.fontFamily] || FF_MAP["sans"];
   // Background and border were previously only wired up for the "name" case
@@ -2243,9 +2243,16 @@ function renderElementHTML(el, profile) {
 
 function generateSigHTML(sig, profile) {
   if (!sig || !sig.rows || !sig.rows.length) return "";
-  // Font-face declarations for email clients that support web fonts
-  const fontCss = typeof COMPASS_FONT_CSS !== "undefined" ? `<style>${COMPASS_FONT_CSS}</style>` : "";
-  let html = fontCss + `<table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;max-width:560px;width:100%;font-family:'Compass Sans','Hanken Grotesk',sans-serif;">`;
+  // Font-face declarations for email clients that support web fonts.
+  // We also @import the Google Fonts fallbacks (Hanken Grotesk incl. 300, and
+  // Source Serif 4) so recipients WITHOUT the Compass fonts installed still get
+  // a close weight-accurate rendering -- Light and Medium included -- in the
+  // email clients that honor web fonts (Apple Mail and others). Clients that
+  // strip web fonts (Gmail, Outlook desktop) fall back to the system stack as
+  // before; no client is made worse.
+  const gFontsImport = "@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Hanken+Grotesk:wght@300;400;500;600;700;800&family=Tenor+Sans&display=swap');";
+  const fontCss = typeof COMPASS_FONT_CSS !== "undefined" ? `<style>${gFontsImport}${COMPASS_FONT_CSS}</style>` : `<style>${gFontsImport}</style>`;
+  let html = fontCss + `<table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;max-width:560px;width:100%;font-family:'Compass Sans','DM Sans','Hanken Grotesk',sans-serif;">`;
   sig.rows.forEach(row => {
     const rs = row.style || {};
     const rStyle = [
@@ -2323,7 +2330,7 @@ function SignatureRenderer({ signature, profile }) {
   const html = generateSigHTML(signature, profile);
   return (
     <div
-      style={{ fontFamily: "'Compass Sans','Hanken Grotesk',sans-serif" }}
+      style={{ fontFamily: "'Compass Sans','DM Sans','Hanken Grotesk',sans-serif" }}
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );
@@ -2430,7 +2437,7 @@ export default function App() {
       const link = document.createElement("link");
       link.id = id;
       link.rel = "stylesheet";
-      link.href = "https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20,300,0,0&display=swap";
+      link.href = "https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Hanken+Grotesk:wght@300;400;500;600;700;800&family=Tenor+Sans&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20,300,0,0&display=swap";
       document.head.appendChild(link);
     }
     // Compass brand fonts (embedded)
@@ -3119,7 +3126,7 @@ export default function App() {
     setSelectedElId(null);
   }
 
-  function addRow(cols) {
+  function addRow(cols, insertIndex) {
     if (!activeSig) return null;
     const newRow = {
       id: "row-"+uuid(), style: {},
@@ -3128,7 +3135,16 @@ export default function App() {
         style: { verticalAlign:"top", ...(i < cols-1 && cols > 1 ? {borderRightWidth:"1px",borderRightColor:"#e5e7eb"} : {}) }
       }))
     };
-    const updated = { ...activeSig, rows: [...activeSig.rows, newRow] };
+    // insertIndex lets a drag-drop caller drop the row at an exact position
+    // (e.g. above the first row or between two rows). Without it, rows always
+    // append to the end, which is the click-to-add behavior we keep as default.
+    let rows;
+    if (Number.isInteger(insertIndex) && insertIndex >= 0 && insertIndex <= activeSig.rows.length) {
+      rows = [...activeSig.rows.slice(0, insertIndex), newRow, ...activeSig.rows.slice(insertIndex)];
+    } else {
+      rows = [...activeSig.rows, newRow];
+    }
+    const updated = { ...activeSig, rows };
     pushSig(updated);
     setSelectedRowId(newRow.id);
     setSelectedElId(null);
@@ -3408,14 +3424,14 @@ export default function App() {
 
   if (accountLoading) {
     return (
-      <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100vh", fontFamily:"'Compass Sans','Hanken Grotesk',sans-serif", color:"#6b7280", background:"#E8E8E8" }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100vh", fontFamily:"'Compass Sans','DM Sans','Hanken Grotesk',sans-serif", color:"#6b7280", background:"#E8E8E8" }}>
         Loading your account…
       </div>
     );
   }
 
   return (
-    <div style={{ display:"flex", height:"100vh", background:"#E8E8E8", color:"#141b2b", fontFamily:"'Compass Sans','Hanken Grotesk',sans-serif", overflow:"hidden" }}>
+    <div style={{ display:"flex", height:"100vh", background:"#E8E8E8", color:"#141b2b", fontFamily:"'Compass Sans','DM Sans','Hanken Grotesk',sans-serif", overflow:"hidden" }}>
       {/* Nav Rail */}
       <aside style={{ width:72, background:"#1c1b1b", display:"flex", flexDirection:"column", alignItems:"center", padding:"16px 0", flexShrink:0, zIndex:10 }}>
         {/* Logo */}
@@ -4320,7 +4336,40 @@ function ColDeleteControls({ row, onDeleteColumn }) {
 }
 
 
-// -- Column Properties Panel ----------------------------------------------
+// A thin drop target that sits in the gap above/below rows on the canvas.
+// When a layout tile (the "add-row" drag from the sidebar) is dragged over it,
+// it highlights and, on drop, inserts a new row of the dragged column-count at
+// this exact position. `index` is where the new row will be inserted in the
+// rows array (0 = very top). It stays invisible until a layout drag is in
+// progress, so it never interferes with normal clicking or element drags.
+function RowInsertZone({ index, active, dragActive, onEnter, onLeave, onDropRow }) {
+  return (
+    <div
+      onDragOver={e=>{ if(e.dataTransfer.types.includes("add-row")){ e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect="move"; onEnter(index); } }}
+      onDragLeave={()=>onLeave(index)}
+      onDrop={e=>{
+        if(e.dataTransfer.types.includes("add-row")){
+          e.preventDefault(); e.stopPropagation();
+          const cols = parseInt(e.dataTransfer.getData("add-row"));
+          if (cols) onDropRow(cols, index);
+          onLeave(index);
+        }
+      }}
+      style={{
+        height: dragActive ? 16 : 6,
+        margin: "0 0",
+        position: "relative",
+        transition: "height 0.1s",
+        pointerEvents: dragActive ? "auto" : "none",
+      }}>
+      {active && (
+        <div style={{ position:"absolute", left:0, right:0, top:"50%", transform:"translateY(-50%)", height:4, background:"#0051d5", borderRadius:2 }} />
+      )}
+    </div>
+  );
+}
+
+
 // Draggable column-width bar -- shows each column as a proportional segment
 // with a drag handle between adjacent ones. Originally only shown in the Row
 // panel; also rendered in the Column panel now (with the current column
@@ -5296,12 +5345,12 @@ function InlineEditableText({ el, profile, onChangeContent, onChangeProfileField
   }, [editing]);
 
   const FF_MAP = {
-    "compass-sans":    "'Compass Sans','Hanken Grotesk',sans-serif",
-    "compass-display": "'Compass Display','Georgia',serif",
-    "compass-serif":   "'Compass Serif','Georgia',serif",
+    "compass-sans":    "'Compass Sans','DM Sans','Hanken Grotesk',sans-serif",
+    "compass-display": "'Compass Display','Tenor Sans','Hanken Grotesk',sans-serif",
+    "compass-serif":   "'Compass Serif','Georgia','Times New Roman',serif",
     "serif":           "'Georgia','Times New Roman',serif",
     "mono":            "monospace",
-    "sans":            "'Compass Sans','Hanken Grotesk',sans-serif",
+    "sans":            "'Compass Sans','DM Sans','Hanken Grotesk',sans-serif",
   };
   const ff = FF_MAP[s.fontFamily] || FF_MAP["sans"];
 
@@ -5464,6 +5513,10 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
   // onClick detect "a drag was just attempted" and ignore itself instead of
   // silently adding the element to the wrong spot.
   const sidebarDragActiveRef = useRef(false);
+  // Reactive flag: true only while a LAYOUT tile (1/2/3/4 Col) is being dragged
+  // from the sidebar. Drives the row-insert drop zones so they expand and become
+  // droppable only during a layout drag, staying out of the way otherwise.
+  const [layoutDragActive, setLayoutDragActive] = useState(false);
   useEffect(() => {
     if (pendingBadgeSlot && selectedElId !== pendingBadgeSlot.elId) setPendingBadgeSlot(null);
   }, [selectedElId]);
@@ -5584,6 +5637,10 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
     }
   }
   const [rowDragOverId, setRowDragOverId] = useState(null);
+  // Which inter-row gap is currently being hovered while dragging a layout tile
+  // from the sidebar. An integer index N means "insert before row N" (0 = very
+  // top, rows.length = very bottom). null = no gap hovered.
+  const [rowInsertGap, setRowInsertGap] = useState(null);
   const [focusedElId, setFocusedElId] = useState(null); // tracks which el has cursor focus // row being dragged over for reorder
 
   // Copy states
@@ -5818,7 +5875,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                 <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8 }}>
                   {[1,2,3,4].map(n => (
                     <div key={n}
-                      draggable onDragStart={e=>{ sidebarDragActiveRef.current = true; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("add-row", n); }} onDragEnd={handleSidebarDragEnd}
+                      draggable onDragStart={e=>{ sidebarDragActiveRef.current = true; setLayoutDragActive(true); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("add-row", n); }} onDragEnd={()=>{ handleSidebarDragEnd(); setLayoutDragActive(false); setRowInsertGap(null); }}
                       onClick={() => { if (sidebarDragActiveRef.current) return; onAddRow(n); }}
                       style={{ border:"1.5px solid #e5e7eb", borderRadius:8, padding:"10px 4px", display:"flex", flexDirection:"column", alignItems:"center", gap:5, cursor:"pointer", background:"#f9fafb" }}
                       onMouseEnter={e=>{e.currentTarget.style.background="#e9edff";e.currentTarget.style.borderColor="#0051d5";}}
@@ -6181,7 +6238,11 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
               <div style={{ fontSize:14 }}>Add a layout row from the sidebar, or drag elements directly here</div>
             </div>
           ) : sig.rows.map((row, ri) => (
-            <div key={row.id} style={{ position:"relative" }}>
+            <Fragment key={row.id}>
+            <RowInsertZone index={ri} active={rowInsertGap===ri} dragActive={layoutDragActive}
+              onEnter={setRowInsertGap} onLeave={(i)=>setRowInsertGap(prev=>prev===i?null:prev)}
+              onDropRow={(cols,idx)=>{ onAddRow(cols, idx); setLayoutDragActive(false); }} />
+            <div style={{ position:"relative" }}>
             {/* Row select toggle in the grey margin on the right */}
             <RowSelectBadge rowIdx={ri} isSelected={row.id===selectedRowId}
               onClick={e=>{ e.stopPropagation(); setSelectedRowId(row.id===selectedRowId?null:row.id); setSelectedElId(null); setSelectedColId(null); }} />
@@ -6351,7 +6412,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                                     "display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;" +
                                     `width:${w}px;height:${Math.max(h,48)}px;box-sizing:border-box;` +
                                     "background:#f9fafb;border:1px dashed #d1d5db;border-radius:6px;" +
-                                    "color:#9ca3af;font-size:11px;font-family:'Compass Sans','Hanken Grotesk',sans-serif;text-align:center;padding:6px;line-height:1.3;";
+                                    "color:#9ca3af;font-size:11px;font-family:'Compass Sans','DM Sans','Hanken Grotesk',sans-serif;text-align:center;padding:6px;line-height:1.3;";
                                   ph.innerHTML =
                                     '<span style="font-size:18px;line-height:1;">&#128247;</span>' +
                                     '<span>Image missing<br/>re-upload to fix</span>';
@@ -6371,6 +6432,12 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
               </table>
             </div>
             </div>
+            {ri === sig.rows.length - 1 && (
+              <RowInsertZone index={ri+1} active={rowInsertGap===ri+1} dragActive={layoutDragActive}
+                onEnter={setRowInsertGap} onLeave={(i)=>setRowInsertGap(prev=>prev===i?null:prev)}
+                onDropRow={(cols,idx)=>{ onAddRow(cols, idx); setLayoutDragActive(false); }} />
+            )}
+            </Fragment>
           ))}
         </div>
         </div>
@@ -7029,7 +7096,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
             {/* Add / remove columns */}
             <div style={{ marginBottom:8 }}>
               <span style={{ fontSize:14, fontWeight:600, color:"#6b7280", display:"block", marginBottom:5 }}>COLUMNS</span>
-              <div style={{ display:"flex", gap:5, alignItems:"stretch" }}>
+              <div style={{ display:"flex", gap:5, alignItems:"flex-end" }}>
                 {selectedRow.columns.length > 1 && (
                   <ColDeleteControls
                     row={selectedRow}
@@ -7038,8 +7105,8 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                 )}
                 {selectedRow.columns.length < 6 && (
                   <button onClick={() => onAddColumn(selectedRow.id)} title="Add column"
-                    style={{ flex: selectedRow.columns.length > 1 ? "0 0 32px" : 1, padding:"4px 2px", fontSize:14, fontWeight:700, borderRadius:5, cursor:"pointer", border:"1px solid #bfdbfe", background:"#eff6ff", color:"#1d4ed8", fontFamily:"inherit", display:"flex", alignItems:"center", justifyContent:"center", gap:3 }}>
-                    <Icon name="add" size={13} color="#1d4ed8" />
+                    style={{ flex: selectedRow.columns.length > 1 ? "0 0 30px" : 1, width: selectedRow.columns.length > 1 ? 30 : "auto", height:30, boxSizing:"border-box", padding: selectedRow.columns.length > 1 ? 0 : "0 2px", fontSize:14, fontWeight:700, borderRadius:5, cursor:"pointer", border:"1px solid #bfdbfe", background:"#eff6ff", color:"#1d4ed8", fontFamily:"inherit", display:"flex", alignItems:"center", justifyContent:"center", gap:3 }}>
+                    <Icon name="add" size={15} color="#1d4ed8" />
                     {selectedRow.columns.length === 1 && <span>Add Column</span>}
                   </button>
                 )}
