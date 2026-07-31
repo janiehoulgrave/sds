@@ -1,21 +1,31 @@
 SignatureStudio update
 =======================
 
-BANNER SIDEBAR: MORE SPACING + CLEARER TITLE HIERARCHY (src/ only)
+DELETE-BUG DIAGNOSTICS + COPY CHANGE (src/ only)
 
-  - More breathing room between banner categories (was 10px, now 22px between
-    each group like Compass Programs, Our Company, etc.).
-  - The category sub-titles are now SMALLER than the main "Compass Banners"
-    heading (they were actually a hair larger before). New hierarchy:
-      "Compass Banners"  -> 11px, bold, dark grey  (the parent heading)
-      category names      ->  9px, lighter grey     (the sub-sections)
+1. "Create New Design" card copy changed from
+     "Select a modern layout and customize it"
+   to
+     "Start from scratch or use a template"
 
-This is a sidebar-only cosmetic change; nothing about the signatures or the
-banners themselves changed.
+2. RECENT PROJECTS UN-DELETING ON REFRESH -- instrumented to find the cause.
+   The delete now logs to the browser console exactly what it does:
+     - "[saveSigs] deleting from Firestore: [ids] for uid ..."
+     - "[saveSigs] deleted OK: <id>"   (delete reached the server)
+     - "[saveSigs] delete FAILED for <id> ..."  (server rejected it)
+   It also shows a toast if the server delete fails, instead of silently
+   swallowing the error like before.
 
-NOTE: this build also still contains everything from the last drop (the 14
-baked-in templates, the loader fix, and the allowlist). If you already deployed
-that, this simply layers the sidebar tweak on top -- just deploy src/ as usual.
+   HOW TO HELP ME PIN IT DOWN AFTER DEPLOY:
+     a. Open the app, right-click -> Inspect -> Console.
+     b. Delete a recent project.
+     c. Tell me which of the three log lines above appears (copy the text).
+   That single line tells us whether the delete is reaching Firestore or being
+   rejected -- and I'll ship the real fix immediately.
+
+   (Note: writes and deletes are now issued separately rather than in one
+   combined batch, which on its own may resolve a race that let a delete get
+   undone by a concurrent write.)
 
 DEPLOY
   1. Drag src/ into the repo root, commit, let Vercel build.

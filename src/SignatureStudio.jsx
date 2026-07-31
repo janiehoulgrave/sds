@@ -3001,14 +3001,24 @@ export default function App() {
     const uid = auth.currentUser?.uid;
     if (uid) {
       const sigsCol = collection(db, "users", uid, "signatures");
-      // Fire-and-forget -- local state is already updated above for a
-      // responsive UI, Firestore syncs in the background. Errors are logged
-      // rather than surfaced, since a transient network hiccup here
-      // shouldn't interrupt someone's editing flow.
-      Promise.all([
-        ...sigs.map(sig => setDoc(doc(sigsCol, sig.id), sig)),
-        ...removedIds.map(id => deleteDoc(doc(sigsCol, id))),
-      ]).catch(err => console.error("Failed to sync signatures to Firestore:", err));
+      // Local state is updated above for a responsive UI; Firestore syncs here.
+      // Deletes matter more than writes -- if a delete fails, the doc reappears
+      // on next load, so we surface delete failures to the user (a toast) rather
+      // than only logging them. Writes stay best-effort.
+      Promise.all(sigs.map(sig => setDoc(doc(sigsCol, sig.id), sig)))
+        .catch(err => console.error("Failed to save signatures to Firestore:", err));
+      if (removedIds.length) {
+        console.log("[saveSigs] deleting from Firestore:", removedIds, "for uid", uid);
+        Promise.all(removedIds.map(id =>
+          deleteDoc(doc(sigsCol, id))
+            .then(() => console.log("[saveSigs] deleted OK:", id))
+            .catch(err => { console.error("[saveSigs] delete FAILED for", id, err); throw err; })
+        ))
+          .catch(err => {
+            console.error("Failed to delete signature(s) from Firestore:", err);
+            showToast("Couldn't delete on the server -- it may reappear. Check your connection.");
+          });
+      }
     }
   }
 
@@ -4228,7 +4238,7 @@ function Dashboard({ signatures, profile, onNavigate, onOpenSig, onDeleteSig, on
             >
               <Icon name="add_circle" size={32} color="#d1d5db" style={{ marginBottom:10 }} />
               <div style={{ fontWeight:700, fontSize:15, color:"#111827" }}>Create New Design</div>
-              <div style={{ fontSize:15, color:"#9ca3af", marginTop:4, maxWidth:160, lineHeight:1.5 }}>Select a modern layout and customize it</div>
+              <div style={{ fontSize:15, color:"#9ca3af", marginTop:4, maxWidth:170, lineHeight:1.5 }}>Start from scratch or use a template</div>
             </div>
           ))}
         </div>
