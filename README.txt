@@ -1,48 +1,24 @@
 SignatureStudio update
 =======================
 
-ONE DEPLOY = TEMPLATES BAKED IN + LOADER FIX + ALLOWLIST  (src/ + firestore.rules)
+BANNER SIDEBAR: MORE SPACING + CLEARER TITLE HIERARCHY (src/ only)
 
-This single drop gets you fully unstuck and live. It includes everything from
-the last drop PLUS all 14 of your template edits baked directly into the code.
+  - More breathing room between banner categories (was 10px, now 22px between
+    each group like Compass Programs, Our Company, etc.).
+  - The category sub-titles are now SMALLER than the main "Compass Banners"
+    heading (they were actually a hair larger before). New hierarchy:
+      "Compass Banners"  -> 11px, bold, dark grey  (the parent heading)
+      category names      ->  9px, lighter grey     (the sub-sections)
 
-1. YOUR 14 TEMPLATE EDITS ARE NOW BUILT IN
-   All 14 edited templates are baked into the shipped defaults, so every
-   approved user gets them automatically on deploy -- no publish step, no
-   localStorage, no browser gymnastics needed:
-     Classic Professional, Elegant Serif, Clean & Focused, Corporate Clean,
-     Editorial, Bold Impact, Modern Luxury, Everyday Essential,
-     Signature Monogram, Modern Editorial, Atelier, Marquee, Prestige,
-     Italic Classic.
-   Each keeps its original thumbnail; your name/description/tagline/style/tags/
-   layout edits are applied on top.
+This is a sidebar-only cosmetic change; nothing about the signatures or the
+banners themselves changed.
 
-2. LOADER HANG FIX
-   The account loader now checks the allowlist BEFORE any Firestore call, so a
-   not-approved (or mid-rules) user goes straight to "Not authorized" instead of
-   hanging on "Loading your account…". This is what fixes the stuck screen.
+NOTE: this build also still contains everything from the last drop (the 14
+baked-in templates, the loader fix, and the allowlist). If you already deployed
+that, this simply layers the sidebar tweak on top -- just deploy src/ as usual.
 
-3. ROLLOUT ALLOWLIST (8 approved emails, in code AND rules)
-     janie.houlgrave@compass.com   amy.peery@compass.com
-     laura.carr@compass.com        a.vang@compass.com
-     sarah.menard@compass.com      kimberly.winters@compass.com
-     lindsey.mcnerney@compass.com  toria.hester@compass.com
+DEPLOY
+  1. Drag src/ into the repo root, commit, let Vercel build.
+  2. Hard-refresh sds.janienation.com (Cmd+Shift+R).
 
-PUBLISH FLOW GOING FORWARD -- UNAFFECTED
-   You can still tweak any template and hit "Publish to all users" as normal.
-   Published edits (Firestore) layer OVER these baked defaults. The only change:
-   for these 14, "revert to original" now returns to your current baked version,
-   not the pristine Compass preset -- which is almost certainly what you want.
-
-DEPLOY -- RULES FIRST
-   1. Firebase console -> Firestore Database -> Rules -> paste firestore.rules ->
-      Publish. (Your email is in the list, so this unblocks your account.)
-   2. Drag src/ into the repo root, commit, let Vercel build.
-   3. Hard-refresh sds.janienation.com (Cmd+Shift+R).
-
-AFTER DEPLOY
-   - Your account loads normally again.
-   - All 14 edited templates appear for every approved user, automatically.
-   - You do NOT need to do the console-paste / localStorage restore anymore --
-     the templates ship in the code now. Your earlier localStorage edits are
-     already captured here.
+No Firebase or rules changes in this drop.

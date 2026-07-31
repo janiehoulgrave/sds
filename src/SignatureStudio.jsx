@@ -6195,12 +6195,12 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
 
               {/* ── Compass GIF Banners ── */}
               <div style={{ marginBottom:16 }}>
-                <div style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8, color:"#9ca3af", marginBottom:8 }}>Compass Banners</div>
+                <div style={{ fontSize:11, fontWeight:800, textTransform:"uppercase", letterSpacing:0.8, color:"#374151", marginBottom:10 }}>Compass Banners</div>
                 {(() => {
                   const cats = [...new Set(banners.map(b=>b.category))];
                   return cats.map(cat => (
-                    <div key={cat} style={{ marginBottom:10 }}>
-                      <div style={{ fontSize:11, fontWeight:700, textTransform:"uppercase", letterSpacing:0.6, color:"#6b7280", marginBottom:6 }}>{cat}</div>
+                    <div key={cat} style={{ marginBottom:22 }}>
+                      <div style={{ fontSize:9, fontWeight:700, textTransform:"uppercase", letterSpacing:0.6, color:"#9ca3af", marginBottom:7 }}>{cat}</div>
                       <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
                         {banners.filter(b=>b.category===cat).map((banner) => (
                           <div key={banner.id}
