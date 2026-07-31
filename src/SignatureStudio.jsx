@@ -2929,7 +2929,14 @@ export default function App() {
         updatedAt: new Date().toISOString(),
         publishedBy: ADMIN_UID,
       };
-      await setDoc(doc(db, ...PUBLISHED_TEMPLATES_PATH), payload);
+      // Under Firestore quota exhaustion, setDoc doesn't reject -- it retries
+      // with backoff and the promise never settles, which would leave the button
+      // spinning on "Publishing…" forever. Race it against a timeout so we can
+      // fail loudly and tell the user the likely cause instead of hanging.
+      const writeP = setDoc(doc(db, ...PUBLISHED_TEMPLATES_PATH), payload);
+      const timeoutP = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("timeout")), 12000));
+      await Promise.race([writeP, timeoutP]);
       // Reflect immediately in this session, and clear the now-published local
       // overrides so the admin's view matches what everyone else will see.
       setPublishedTemplates({ customTemplates: mergedCustoms, overrides: mergedOverrides, updatedAt: payload.updatedAt });
@@ -2940,9 +2947,14 @@ export default function App() {
       showToast("Templates published to all users");
     } catch (e) {
       console.error("Publish failed:", e);
-      showToast("Publish failed -- check your connection and permissions");
+      if (e && e.message === "timeout") {
+        showToast("Publish didn't complete -- the database may be over its daily limit. Try again after the quota resets.");
+      } else {
+        showToast("Publish failed -- check your connection and permissions");
+      }
     } finally {
       setPublishing(false);
+      setPublishConfirmOpen(false);
     }
   }
 
@@ -2995,18 +3007,38 @@ export default function App() {
   }
 
   function saveSigs(sigs) {
-    const removedIds = signatures.filter(s => !sigs.find(x => x.id === s.id)).map(s => s.id);
+    const prev = signatures;
+    const removedIds = prev.filter(s => !sigs.find(x => x.id === s.id)).map(s => s.id);
+    // Only write signatures that are actually new or whose content changed.
+    // Previously this re-wrote EVERY signature on every save, so a single edit
+    // with 20 saved projects cost 20 Firestore writes and burned through the
+    // daily quota fast. Comparing against the previous state and writing only
+    // the diff cuts writes to (usually) one per save.
+    const prevById = {};
+    prev.forEach(s => { prevById[s.id] = s; });
+    // Compare content ignoring the updatedAt timestamp -- otherwise the
+    // debounced autosave (which always bumps updatedAt) would look "changed"
+    // every 1.2s and write even when nothing real changed, re-burning quota.
+    const stripTs = (s) => { const { updatedAt, ...rest } = s || {}; return JSON.stringify(rest); };
+    const changed = sigs.filter(s => {
+      const before = prevById[s.id];
+      if (!before) return true; // new
+      try { return stripTs(before) !== stripTs(s); }
+      catch { return true; }
+    });
     setSignatures(sigs);
     (typeof localStorage !== "undefined" && localStorage.setItem("ss_sigs", JSON.stringify(sigs)));
     const uid = auth.currentUser?.uid;
     if (uid) {
       const sigsCol = collection(db, "users", uid, "signatures");
       // Local state is updated above for a responsive UI; Firestore syncs here.
+      if (changed.length) {
+        Promise.all(changed.map(sig => setDoc(doc(sigsCol, sig.id), sig)))
+          .catch(err => console.error("Failed to save signatures to Firestore:", err));
+      }
       // Deletes matter more than writes -- if a delete fails, the doc reappears
       // on next load, so we surface delete failures to the user (a toast) rather
-      // than only logging them. Writes stay best-effort.
-      Promise.all(sigs.map(sig => setDoc(doc(sigsCol, sig.id), sig)))
-        .catch(err => console.error("Failed to save signatures to Firestore:", err));
+      // than only logging them.
       if (removedIds.length) {
         console.log("[saveSigs] deleting from Firestore:", removedIds, "for uid", uid);
         Promise.all(removedIds.map(id =>

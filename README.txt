@@ -1,31 +1,30 @@
 SignatureStudio update
 =======================
 
-DELETE-BUG DIAGNOSTICS + COPY CHANGE (src/ only)
+PUBLISH BUTTON: STOP THE INFINITE SPINNER (src/ only)
 
-1. "Create New Design" card copy changed from
-     "Select a modern layout and customize it"
-   to
-     "Start from scratch or use a template"
+The publish button hanging on "Publishing…" is the SAME quota problem as the
+deletes. Publishing writes to Firestore, and while you're over the daily free
+limit, that write doesn't fail -- Firebase retries it forever ("maximum backoff"
+in the console), so the button spins and never finishes.
 
-2. RECENT PROJECTS UN-DELETING ON REFRESH -- instrumented to find the cause.
-   The delete now logs to the browser console exactly what it does:
-     - "[saveSigs] deleting from Firestore: [ids] for uid ..."
-     - "[saveSigs] deleted OK: <id>"   (delete reached the server)
-     - "[saveSigs] delete FAILED for <id> ..."  (server rejected it)
-   It also shows a toast if the server delete fails, instead of silently
-   swallowing the error like before.
+FIX
+  Publishing now times out after ~12 seconds and shows a clear message
+  ("...the database may be over its daily limit. Try again after the quota
+  resets.") instead of hanging. The confirm dialog also closes so you're not
+  stuck.
 
-   HOW TO HELP ME PIN IT DOWN AFTER DEPLOY:
-     a. Open the app, right-click -> Inspect -> Console.
-     b. Delete a recent project.
-     c. Tell me which of the three log lines above appears (copy the text).
-   That single line tells us whether the delete is reaching Firestore or being
-   rejected -- and I'll ship the real fix immediately.
+IMPORTANT -- what this does and doesn't do
+  - It does NOT make publishing succeed while you're over quota. Publishing will
+    still only work after the daily reset (midnight Pacific) or after upgrading
+    to the Blaze plan. It just fails gracefully now instead of hanging.
+  - You do NOT need publish to work today for your templates to be live: all 14
+    template edits are already baked into the code, so every approved user gets
+    them on deploy regardless of the publish button.
 
-   (Note: writes and deletes are now issued separately rather than in one
-   combined batch, which on its own may resolve a race that let a delete get
-   undone by a concurrent write.)
+This drop also still includes the write-quota save fix (only writes changed
+signatures), the "Start from scratch or use a template" copy, and the banner
+sidebar spacing tweak.
 
 DEPLOY
   1. Drag src/ into the repo root, commit, let Vercel build.
