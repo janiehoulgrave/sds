@@ -6268,7 +6268,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
               style={{
                 border:`2px solid ${row.id===selectedRowId?"#0051d5":"transparent"}`,
                 borderTop: rowDragOverId===row.id ? "3px solid #0051d5" : undefined,
-                marginBottom:4, position:"relative",
+                marginBottom: ri === sig.rows.length - 1 ? 0 : 4, position:"relative",
                 // Mirror the exported HTML's row padding on the live canvas so the
                 // Padding Top / Padding Bottom controls in Row Settings actually
                 // change what you see. Export uses `rs.paddingTop || "8px"` (same

@@ -1,27 +1,17 @@
 SignatureStudio update
 =======================
 
-FIX: CIRCLE PHOTO WITH A FLATTENED / COLLAPSED EDGE (src/ only -- no API changes)
+FIX: THIN STRIP BELOW THE LAST ROW ON THE CANVAS (src/ only -- no API changes)
 
-The real cause of the "one side of the circle is cut off" look: the photo's
-wrapper had overflow:hidden with max-width:100%. When the photo's column was
-narrower than the photo (e.g. a column set to 23% width), the wrapper shrank
-to the column and clipped the overflowing side of the circle flat.
+Every row on the canvas had a 4px bottom margin so rows have a little space
+between them. That margin was also applied to the LAST row, leaving a thin
+strip of empty space between the signature and the bottom edge of the canvas.
 
-Two changes:
-  1. Removed the clipping wrapper. The photo image already carries its own
-     rounding and border, so the wrapper no longer needs overflow:hidden --
-     which means it can no longer chop a flat edge off the circle.
-  2. Hardened the photo-column sizing so a photo whose width is stored as a
-     percentage can't be misread as pixels, in both the canvas and the export.
+The bottom margin is now dropped on the last row only, so the canvas ends
+flush with the signature. Spacing between rows is unchanged.
 
-Combined with the previous fix (Circle forces height = width), a circular
-photo now stays perfectly round regardless of the column width, on both the
-canvas and the pasted signature.
-
-Tip: if a photo column looks too narrow, you can still widen it with the
-Col 1 / Col 2 slider, but you no longer have to in order to keep the circle
-intact.
+This is a canvas-only cosmetic tweak -- the exported/pasted signature was
+never affected by it.
 
 DEPLOY
 ------
