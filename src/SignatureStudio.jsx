@@ -2090,7 +2090,7 @@ function renderElementInner(el, profile) {
         // the size on the img directly removes that indirection. aspect-
         // ratio is a belt-and-suspenders backstop for modern browsers if
         // max-width ever has to shrink the width below its intended size.
-        return `<div style="display:inline-block;line-height:0;max-width:100%;border-radius:${br};overflow:hidden;mso-margin-top-alt:0;mso-margin-bottom-alt:0;${bdr}"><img src="${src}" width="${wNum}" height="${hNum}" style="width:${w};height:${h};max-width:100%;aspect-ratio:${wNum}/${hNum};object-fit:${s.objectFit||"cover"};display:block;" referrerpolicy="no-referrer" /></div>`;
+        return `<div style="display:block;line-height:0;font-size:0;max-width:100%;border-radius:${br};overflow:hidden;mso-margin-top-alt:0;mso-margin-bottom-alt:0;"><img src="${src}" width="${wNum}" height="${hNum}" style="width:${w};height:${h};box-sizing:border-box;aspect-ratio:${wNum}/${hNum};border-radius:${br};${bdr}object-fit:${s.objectFit||"cover"};display:block;" referrerpolicy="no-referrer" /></div>`;
       }
       case "logo": {
         const src = s.croppedSrc || profile.logoUrl || "";
@@ -2100,7 +2100,7 @@ function renderElementInner(el, profile) {
         const hNum = parseInt(h) || (wNum * 0.4) || 36; // rough fallback if height is "auto"
         const fit = s.objectFit || "contain";
         if (!src) return `<div style="width:${w};height:${h};display:flex;align-items:center;justify-content:center;border:1px dashed #d1d5db;border-radius:4px;font-family:sans-serif;font-size:10px;color:#9ca3af;margin-top:0;margin-bottom:2px;mso-margin-top-alt:0;mso-margin-bottom-alt:2px;">Logo</div>`;
-        return `<div style="margin-top:0;margin-bottom:2px;mso-margin-top-alt:0;mso-margin-bottom-alt:2px;"><img src="${src}" width="${wNum}" ${h!=="auto"?`height="${hNum}"`:""} style="width:${w};height:${h};object-fit:${fit};display:block;" /></div>`;
+        return `<div style="line-height:0;font-size:0;margin-top:0;margin-bottom:2px;mso-margin-top-alt:0;mso-margin-bottom-alt:2px;"><img src="${src}" width="${wNum}" ${h!=="auto"?`height="${hNum}"`:""} style="width:${w};height:${h};object-fit:${fit};display:block;" /></div>`;
       }
       case "personalLogo": {
         const src = profile.personalLogoUrl || "";
@@ -2273,6 +2273,10 @@ function generateSigHTML(sig, profile) {
       // design width (Dashboard preview cards, Gmail/Outlook re-rendering).
       const photoEl = col.elements.find(el => el.type === "dynamic" && el.subtype === "photo");
       const photoSize = photoEl ? (parseInt(photoEl.style?.width) || 90) : null;
+      // A border on the photo now sits INSIDE its box (box-sizing:border-box),
+      // so it does not add to the photo's footprint -- the column width only
+      // needs to match the photo width, and the circle/shape stays true even
+      // at max column width with a thick border.
       const padL = cs.paddingLeft ? parseInt(cs.paddingLeft) || 0 : 0;
       const padR = cs.paddingRight ? parseInt(cs.paddingRight) || 0 : 0;
       const w = photoSize ? `${photoSize + padL + padR}px` : (cs.width || `${Math.floor(100/row.columns.length)}%`);
@@ -6217,7 +6221,20 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
               <table cellPadding="0" cellSpacing="0" style={{ width:"100%", borderCollapse:"collapse", tableLayout:"fixed" }}>
                 <tbody><tr>
                   {row.columns.map((col, ci) => {
-                    const colW = col.style?.width || `${Math.floor(100/row.columns.length)}%`;
+                    // Match the export renderer: if a column holds a photo,
+                    // give it an explicit pixel width equal to the photo size
+                    // (+ the column's own left/right padding) instead of a
+                    // percentage. Under the fixed table layout a percentage
+                    // column narrower than the photo squished a circle into an
+                    // oval on the live canvas; pixel-sizing the column keeps the
+                    // shape true and makes the canvas agree with the pasted
+                    // signature. Border now sits inside the photo box
+                    // (box-sizing:border-box), so it adds nothing to this width.
+                    const photoElC = col.elements.find(el => el.type === "dynamic" && el.subtype === "photo");
+                    const photoSizeC = photoElC ? (parseInt(photoElC.style?.width) || 90) : null;
+                    const cPadL = col.style?.paddingLeft ? parseInt(col.style.paddingLeft) || 0 : 0;
+                    const cPadR = col.style?.paddingRight ? parseInt(col.style.paddingRight) || 0 : 0;
+                    const colW = photoSizeC ? `${photoSizeC + cPadL + cPadR}px` : (col.style?.width || `${Math.floor(100/row.columns.length)}%`);
                     const isSelCol = selectedColId === col.id;
                     const gutter = row.style?.columnGap || "10px";
                     return (
