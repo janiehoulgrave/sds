@@ -6,6 +6,30 @@ import { db, auth } from "./firebase.js";
 // templates to all users. This is enforced both here (UI gating) and in the
 // Firestore security rules for the shared published-templates document.
 const ADMIN_UID = "1idnAdK800UUzg7xW9hmH76OgH82";
+
+// ── TEMPORARY ROLLOUT ALLOWLIST ───────────────────────────────────────────
+// While rolling out, only these email addresses can use the app. Everyone else
+// with a @compass.com account gets a "not authorized" screen. To approve more
+// people, add their email (lowercase) to this list and redeploy, AND add it to
+// the same list in the Firestore rules (firestore.rules) so it's actually
+// enforced, not just hidden in the UI. When you're ready to open access to all
+// @compass.com users, set ALLOWLIST_ENABLED to false here and relax the rules.
+const ALLOWLIST_ENABLED = true;
+const ALLOWED_EMAILS = [
+  "janie.houlgrave@compass.com",
+  "amy.peery@compass.com",
+  "laura.carr@compass.com",
+  "a.vang@compass.com",
+  "sarah.menard@compass.com",
+  "kimberly.winters@compass.com",
+  "lindsey.mcnerney@compass.com",
+  "toria.hester@compass.com",
+];
+function isEmailAllowed(email) {
+  if (!ALLOWLIST_ENABLED) return true;
+  if (!email) return false;
+  return ALLOWED_EMAILS.includes(email.trim().toLowerCase());
+}
 // Firestore location that holds the templates published to every user.
 // A single document keeps the whole publish atomic (one write, one read).
 const PUBLISHED_TEMPLATES_PATH = ["shared", "publishedTemplates"];
@@ -2379,6 +2403,12 @@ export default function App() {
       const uid = auth.currentUser?.uid;
       if (!uid) { setAccountLoading(false); return; }
 
+      // If this user isn't on the rollout allowlist, don't touch Firestore at
+      // all -- the rules would deny every call and that can leave the SDK
+      // retrying, which looks like a permanent "Loading…". Skip straight to the
+      // not-authorized gate instead.
+      if (!isEmailAllowed(auth.currentUser?.email)) { setAccountLoading(false); return; }
+
       try {
         const profileRef = doc(db, "users", uid);
         const profileSnap = await getDoc(profileRef);
@@ -3559,6 +3589,25 @@ export default function App() {
     return (
       <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100vh", fontFamily:"'Compass Sans','DM Sans','Hanken Grotesk',sans-serif", color:"#6b7280", background:"#E8E8E8" }}>
         Loading your account…
+      </div>
+    );
+  }
+
+  // Temporary rollout allowlist gate. A signed-in user whose email isn't on the
+  // approved list is blocked here. The Firestore rules enforce the same list, so
+  // this isn't just a cosmetic screen -- a blocked user also can't read or write
+  // any data. Sign-out lets them switch to an approved account.
+  if (!isEmailAllowed(auth?.currentUser?.email)) {
+    return (
+      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:"100vh", gap:14, textAlign:"center", padding:24, fontFamily:"'Compass Sans','DM Sans','Hanken Grotesk',sans-serif", color:"#374151", background:"#E8E8E8" }}>
+        <div style={{ fontSize:20, fontWeight:800, color:"#111827" }}>Not authorized</div>
+        <div style={{ fontSize:15, maxWidth:420, lineHeight:1.5 }}>
+          This account doesn't have access to Signature Studio yet. Access is currently limited during rollout.
+        </div>
+        <button onClick={()=>{ try { auth.signOut(); } catch {} }}
+          style={{ marginTop:6, background:"#0051d5", border:"none", borderRadius:8, padding:"9px 18px", fontSize:14, fontWeight:700, color:"#fff", cursor:"pointer", fontFamily:"inherit" }}>
+          Sign out
+        </button>
       </div>
     );
   }

@@ -2,33 +2,51 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Compass banner library -- readable/writable by any signed-in Compass user.
-    match /banners/{bannerId} {
-      allow read: if request.auth != null
-                   && request.auth.token.email.matches('.*@compass[.]com');
-      allow write: if request.auth != null
-                    && request.auth.token.email.matches('.*@compass[.]com');
+    // ── TEMPORARY ROLLOUT ALLOWLIST ──────────────────────────────────────
+    // While rolling out, only these emails may read/write anything. Keep this
+    // list identical to ALLOWED_EMAILS in the app code (SignatureStudio.jsx).
+    // To approve someone: add their lowercase email here AND in the code, then
+    // republish these rules and redeploy the code.
+    // To open access to ALL @compass.com users later: make isAllowed() return
+    // isCompass() (and set ALLOWLIST_ENABLED = false in the code).
+    function isCompass() {
+      return request.auth != null
+             && request.auth.token.email.matches('.*@compass[.]com');
+    }
+    function isAllowed() {
+      return request.auth != null && request.auth.token.email in [
+        'janie.houlgrave@compass.com',
+        'amy.peery@compass.com',
+        'laura.carr@compass.com',
+        'a.vang@compass.com',
+        'sarah.menard@compass.com',
+        'kimberly.winters@compass.com',
+        'lindsey.mcnerney@compass.com',
+        'toria.hester@compass.com'
+      ];
     }
 
-    // Per-user private data -- only the owner can read or write their own tree.
+    // Compass banner library -- approved users only during rollout.
+    match /banners/{bannerId} {
+      allow read: if isAllowed();
+      allow write: if isAllowed();
+    }
+
+    // Per-user private data -- must be the owner AND on the allowlist.
     match /users/{uid} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read, write: if isAllowed() && request.auth.uid == uid;
       match /signatures/{sigId} {
-        allow read, write: if request.auth != null && request.auth.uid == uid;
+        allow read, write: if isAllowed() && request.auth.uid == uid;
       }
       match /media/{mediaId} {
-        allow read, write: if request.auth != null && request.auth.uid == uid;
+        allow read, write: if isAllowed() && request.auth.uid == uid;
       }
     }
 
     // Shared, admin-published data (e.g. published templates).
-    // ANY signed-in Compass user may READ it (so everyone gets the published
-    // templates), but ONLY the single admin account may WRITE it. This is the
-    // real enforcement behind the "Publish to all users" button -- even a user
-    // who bypasses the front-end admin gate cannot write here.
+    // Approved users may READ; only the admin account may WRITE.
     match /shared/{docId} {
-      allow read: if request.auth != null
-                   && request.auth.token.email.matches('.*@compass[.]com');
+      allow read: if isAllowed();
       allow write: if request.auth != null
                     && request.auth.uid == '1idnAdK800UUzg7xW9hmH76OgH82';
     }

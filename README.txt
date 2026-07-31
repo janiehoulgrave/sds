@@ -1,50 +1,40 @@
 SignatureStudio update
 =======================
 
-PUBLISH TEMPLATES TO ALL USERS (admin-only)  --  src/ + firestore.rules
+FIX STUCK "LOADING YOUR ACCOUNT" + APPROVED-USER ALLOWLIST  (src/ + firestore.rules)
 
-You can now publish your templates to every agent straight from admin mode,
-with no code deploy and no JSON export. This replaces the old export-and-bake
-workflow.
+WHAT WENT WRONG
+The app hung on "Loading your account…" because the account loader was making
+Firestore calls that the new rules denied (your email wasn't in the allowlist
+yet), and a denied call can leave the SDK retrying instead of failing cleanly.
 
-HOW IT WORKS
-  - Admin controls (including Publish) are locked to your account only
-    (UID 1idnAdK800UUzg7xW9hmH76OgH82). No other signed-in user can open admin
-    mode or publish, even with the passphrase.
-  - On the Templates screen in admin mode you'll see a blue "Publish to all
-    users" button, plus a "Last published ..." timestamp.
-  - Publishing writes your current templates (your built-in tweaks + any custom
-    templates) to a shared Firestore doc: shared/publishedTemplates.
-  - Every user loads that shared doc on startup, so your published templates
-    become their defaults automatically.
-  - Publishing asks for confirmation first, and is cumulative -- it merges over
-    whatever was published before, so it never silently drops earlier work.
-  - Your own unpublished local edits still layer on top for YOUR preview, so you
-    can tweak, review, then publish when ready. After publishing, your local
-    override layer is cleared (since it's now the shared default).
+FIXES
+  1. The loader now checks the allowlist BEFORE any Firestore call. A user who
+     isn't approved skips the data load entirely and goes straight to the
+     "Not authorized" screen -- it can never hang on a denied call again.
+  2. The 8 approved emails are baked into BOTH the code and the Firestore rules:
+        janie.houlgrave@compass.com   amy.peery@compass.com
+        laura.carr@compass.com        a.vang@compass.com
+        sarah.menard@compass.com      kimberly.winters@compass.com
+        lindsey.mcnerney@compass.com  toria.hester@compass.com
 
-SECURITY
-  Two locks: the UI only shows admin/publish to your account, AND the Firestore
-  rules only allow WRITES to shared/* from your UID. Reads are open to all
-  signed-in @compass.com users. So even someone bypassing the front-end cannot
-  publish.
+APPROVING MORE PEOPLE LATER
+  Add the lowercase email in TWO places, then redeploy both:
+    - ALLOWED_EMAILS in src/SignatureStudio.jsx
+    - isAllowed() list in firestore.rules
+  The two lists must always match.
 
-DEPLOY -- TWO STEPS, RULES FIRST
-  1. Publish the Firestore rules FIRST (this is required or publishing will be
-     denied):
-       - Firebase console -> Firestore Database -> Rules
-       - Replace the rules with the contents of firestore.rules from this zip
-       - Click Publish
-  2. Then deploy the code:
-       - Drag the src/ folder into your GitHub repo root and commit
-       - Let Vercel build
-       - Hard-refresh sds.janienation.com (Cmd+Shift+R)
+OPENING TO ALL COMPASS USERS LATER
+  - In the code: set ALLOWLIST_ENABLED = false
+  - In the rules: make isAllowed() return isCompass()
+  (I can do this final flip for you as a small drop when you're ready.)
 
-FIRST PUBLISH
-  After both steps, open Templates in admin mode and click "Publish to all
-  users" once to push your current templates live for everyone. Confirm the
-  "Last published" timestamp updates.
+DEPLOY -- RULES FIRST
+  1. Firebase console -> Firestore Database -> Rules -> paste firestore.rules ->
+     Publish. (Do this first, or approved users' saves will be denied.)
+  2. Drag src/ into the repo root, commit, let Vercel build.
+  3. Hard-refresh sds.janienation.com (Cmd+Shift+R).
 
-NOTE
-  The old "Export JSON" button is still there as a backup, but you shouldn't
-  need it anymore.
+AFTER DEPLOY
+  Your account (janie.houlgrave@compass.com) will load normally again. The other
+  7 approved users can sign in and use it; anyone else sees "Not authorized."
