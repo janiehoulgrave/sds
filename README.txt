@@ -1,35 +1,29 @@
-SDS UPDATE - "image missing" placeholder for broken/deleted images
-==================================================================
+SignatureStudio update
+=======================
 
-FILE THAT CHANGED:
-  src/SignatureStudio.jsx   -> replaces src/SignatureStudio.jsx
-  (api/* unchanged; included for a complete set, re-dragging is harmless.)
+TWO FIXES IN THIS DROP (src/ only -- no API changes)
 
-WHAT CHANGED:
-  - When an image in a signature fails to load in the EDITOR canvas (its R2
-    file was deleted, an old base64 got cleared, or a link died), it now shows
-    a gentle dashed "Image missing -- re-upload to fix" placeholder instead of
-    the browser's broken-image icon. Covers the main image, headshot, logo,
-    and badges.
-  - The Media Library grid does the same: a thumbnail that can't load shows a
-    small "Image missing" note instead of a broken box.
+1. ROW PADDING NOW WORKS ON THE CANVAS
+   Row Settings > Padding Top / Padding Bottom already changed the exported
+   HTML, but the live editor canvas ignored those values, so it looked like
+   nothing happened and there was always extra space top and bottom. The
+   canvas row now applies the same padding the export uses (default 8px top
+   and bottom). To remove the extra space, select the row and set Padding
+   Top and Padding Bottom to 0px -- the canvas and the pasted signature will
+   now match.
 
-IMPORTANT -- CANVAS ONLY:
-  This is purely an editor-side nicety. The exported/pasted signature HTML is
-  a plain string and is completely unchanged -- no error handlers or
-  placeholders ever go into an email. If an image is genuinely deleted, the
-  email will still show a broken image (nothing we can do about already-sent
-  mail); this just makes the EDITOR tell the agent clearly so they can
-  re-upload before sending again.
+2. LOGO SMART FIELD
+   Added a "Logo" element to the element palette (next to Headshot). Drop it
+   in and it pulls the Compass office logo straight from your Profile
+   (Profile > Logo). If no logo is set yet it shows a dashed "Logo"
+   placeholder. It supports the same width/height and crop controls as the
+   other image elements.
 
-DEPLOY (GitHub web UI):
-  1. Unzip -> src/ (and api/).
-  2. GitHub: drag src/ into repo root (overwrites SignatureStudio.jsx). Commit.
-  3. Vercel auto-deploys. Hard-refresh (Cmd+Shift+R).
+DEPLOY
+------
+1. Drag the src/ folder into your GitHub repo root and commit
+   (this replaces src/SignatureStudio.jsx).
+2. Let Vercel finish building.
+3. Hard-refresh sds.janienation.com (Cmd+Shift+R).
 
-TEST:
-  - Put an uploaded image in a signature, then delete that image from the
-    Media Library, then reopen/!view the signature -> you should see the
-    "Image missing" placeholder in the canvas, not a broken icon.
-
-ENV VAR: none new. No Firestore rules change.
+No Firebase or API changes are needed for this update.

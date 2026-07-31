@@ -4166,6 +4166,7 @@ const DYNAMIC_ELEMENTS = [
   {type:"dynamic", subtype:"address", label:"Address",  icon:"location_on"},
   {type:"dynamic", subtype:"website", label:"Website",  icon:"language"},
   {type:"dynamic", subtype:"photo",   label:"Headshot", icon:"account_circle"},
+  {type:"dynamic", subtype:"logo",    label:"Logo",     icon:"apartment"},
   {type:"dynamic", subtype:"social",  label:"Social",   icon:"share"},
 ];
 
@@ -6179,6 +6180,13 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                 border:`2px solid ${row.id===selectedRowId?"#0051d5":"transparent"}`,
                 borderTop: rowDragOverId===row.id ? "3px solid #0051d5" : undefined,
                 marginBottom:4, position:"relative",
+                // Mirror the exported HTML's row padding on the live canvas so the
+                // Padding Top / Padding Bottom controls in Row Settings actually
+                // change what you see. Export uses `rs.paddingTop || "8px"` (same
+                // 8px default), so canvas and paste now match. Set a row to 0px
+                // top/bottom to remove that default gap.
+                paddingTop: (row.style?.paddingTop ?? "8px"),
+                paddingBottom: (row.style?.paddingBottom ?? "8px"),
                 // Row's own background color takes priority; the selection tint only
                 // applies when there's no custom color set, so a chosen background
                 // now actually shows on the live canvas instead of only in exported
