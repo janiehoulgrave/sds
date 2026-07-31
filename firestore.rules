@@ -22,7 +22,10 @@ service cloud.firestore {
         'sarah.menard@compass.com',
         'kimberly.winters@compass.com',
         'lindsey.mcnerney@compass.com',
-        'toria.hester@compass.com'
+        'toria.hester@compass.com',
+        'sarah.tareen@compass.com',
+        'trevor.evans@compass.com',
+        'ariel.mantilla@compass.com'
       ];
     }
 

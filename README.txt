@@ -1,33 +1,29 @@
 SignatureStudio update
 =======================
 
-PUBLISH BUTTON: STOP THE INFINITE SPINNER (src/ only)
+ADDED 3 AUTHORIZED USERS (src/ + firestore.rules)
 
-The publish button hanging on "Publishing…" is the SAME quota problem as the
-deletes. Publishing writes to Firestore, and while you're over the daily free
-limit, that write doesn't fail -- Firebase retries it forever ("maximum backoff"
-in the console), so the button spins and never finishes.
+Added to the rollout allowlist, in BOTH the code and the Firestore rules:
+    sarah.tareen@compass.com
+    trevor.evans@compass.com
+    ariel.mantilla@compass.com
 
-FIX
-  Publishing now times out after ~12 seconds and shows a clear message
-  ("...the database may be over its daily limit. Try again after the quota
-  resets.") instead of hanging. The confirm dialog also closes so you're not
-  stuck.
+Full approved list is now 11 people.
 
-IMPORTANT -- what this does and doesn't do
-  - It does NOT make publishing succeed while you're over quota. Publishing will
-    still only work after the daily reset (midnight Pacific) or after upgrading
-    to the Blaze plan. It just fails gracefully now instead of hanging.
-  - You do NOT need publish to work today for your templates to be live: all 14
-    template edits are already baked into the code, so every approved user gets
-    them on deploy regardless of the publish button.
+DEPLOY -- BOTH PARTS (the two lists must match)
+  1. Firebase console -> Firestore Database -> Rules -> paste firestore.rules ->
+     Publish.
+  2. Drag src/ into the repo root, commit, let Vercel build.
+  3. Hard-refresh.
 
-This drop also still includes the write-quota save fix (only writes changed
-signatures), the "Start from scratch or use a template" copy, and the banner
-sidebar spacing tweak.
+Until BOTH are done, the 3 new users will either see the app but not be able to
+save (if only the code is deployed) or be blocked despite looking approved (if
+only the rules are published). Do both.
 
-DEPLOY
-  1. Drag src/ into the repo root, commit, let Vercel build.
-  2. Hard-refresh sds.janienation.com (Cmd+Shift+R).
+This drop also still includes everything recent: the write-quota save fix, the
+publish timeout, the "Start from scratch or use a template" copy, and the
+banner sidebar spacing. And the 14 baked-in templates.
 
-No Firebase or rules changes in this drop.
+NOTE: the Firestore quota is still in effect until the daily reset (midnight
+Pacific). These 3 users can sign in once deployed, but saves/publishes won't
+persist until the quota resets.

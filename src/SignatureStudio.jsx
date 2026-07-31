@@ -24,6 +24,9 @@ const ALLOWED_EMAILS = [
   "kimberly.winters@compass.com",
   "lindsey.mcnerney@compass.com",
   "toria.hester@compass.com",
+  "sarah.tareen@compass.com",
+  "trevor.evans@compass.com",
+  "ariel.mantilla@compass.com",
 ];
 function isEmailAllowed(email) {
   if (!ALLOWLIST_ENABLED) return true;
