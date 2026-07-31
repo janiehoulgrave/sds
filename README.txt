@@ -1,23 +1,30 @@
 SignatureStudio update
 =======================
 
-PHOTO BORDER NO LONGER DISTORTS THE SHAPE (src/ only -- no API changes)
+COMPASS SANS LIGHT & MEDIUM ARE NOW SELECTABLE (src/ only -- no API changes)
 
-Before: adding a border to a photo that was already at its column's max
-width pushed the photo's total size past the column. With nowhere to grow,
-the image got squished -- a circle turned into an oval (see the thick blue
-border example).
+When you provided the Compass fonts, Compass Sans came in several weights
+(Light, Regular, Medium, Bold). The font CSS already declared all four, but
+the editor only had a Bold on/off button, so Light and Medium could never
+actually be chosen.
 
-Fixed two ways:
-  1. The border now sits INSIDE the photo's box (box-sizing:border-box),
-     so it no longer adds to the photo's footprint. A 146px circle with a
-     7px border still occupies exactly 146px and stays perfectly round.
-  2. The photo's COLUMN now auto-sizes to the photo width on the live
-     canvas, exactly like the exported signature already did. So the
-     column hugs the photo (plus any column padding) instead of forcing a
-     percentage width that squished the shape. Canvas and paste now match.
+Added a "Font weight" dropdown to the text formatting toolbar (right after
+the B / I / U buttons). Select a text element and pick:
+  - Light   (300)
+  - Regular (400)
+  - Medium  (500)
+  - Bold    (700)
 
-This applies to both circle and square photos, at any border width.
+The Bold button still works and stays in sync (Bold = weight 700). The
+chosen weight shows on the live canvas and carries through to the pasted /
+emailed signature.
+
+One caveat worth knowing: the Compass fonts are referenced by name
+(local()), not embedded, so Light and Medium display exactly as intended
+only on machines that have the Compass fonts installed. On machines without
+them, the browser falls back to the nearest weight of the backup font
+(Hanken Grotesk), which may look closer to Regular or Bold. This is the same
+way Bold has always behaved, just now with more weight options.
 
 DEPLOY
 ------

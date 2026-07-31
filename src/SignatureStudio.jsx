@@ -6104,6 +6104,22 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                     {key}
                   </button>;
                 })}
+                {/* Weight selector -- lets the user pick any of the Compass Sans
+                    faces (Light 300, Regular 400, Medium 500, Bold 700), not just
+                    bold on/off. Writes the numeric weight straight to fontWeight,
+                    which both the canvas and the exported HTML already emit as
+                    font-weight. The B button above stays in sync since "bold" just
+                    means weight 700. Note: Light and Medium render fully only on
+                    machines that have the Compass fonts installed (the CSS uses
+                    local()); elsewhere the browser falls back to the nearest
+                    available weight. */}
+                <select title="Font weight" style={{ fontSize:13, border:"1px solid #e5e7eb", borderRadius:5, padding:"4px 6px", fontFamily:"inherit", cursor:"pointer", color:"#374151", height:32 }}
+                  value={String(el.style?.fontWeight||"400")} onChange={e=>onUpdateElStyle("fontWeight",e.target.value)}>
+                  <option value="300">Light</option>
+                  <option value="400">Regular</option>
+                  <option value="500">Medium</option>
+                  <option value="700">Bold</option>
+                </select>
                 <div style={{ width:1, height:22, background:"#e5e7eb", margin:"0 2px" }} />
                 {[["left","format_align_left"],["center","format_align_center"],["right","format_align_right"]].map(([val,icon])=>{
                   const active=(el.style?.textAlign||"left")===val;
