@@ -1,20 +1,24 @@
 SignatureStudio update
 =======================
 
-FIX: EXTRA SPACE AT THE BOTTOM OF THE CANVAS (src/ only -- no API changes)
+FIX: DEFAULT SPACE ABOVE/BELOW ROWS (src/ only -- no API changes)
 
-The row-insert drop zones (added so you can drag a layout row into position)
-were each reserving a few pixels of height even when you weren't dragging.
-Stacked across the gaps between rows and below the last row, that showed up
-as unexplained empty space at the bottom of the canvas.
+Rows had a built-in default padding of 8px top and 8px bottom, applied to
+both the live canvas and the exported signature. On a single-row signature
+that showed up as a strip of empty space above and below the content inside
+the row's selection box.
 
-The drop zones now collapse to zero height when idle and only expand while
-you're actively dragging a layout tile from the sidebar. No visible space is
-added the rest of the time, and drag-to-insert still works exactly as before.
+Row padding now defaults to 0 top and 0 bottom, on both the canvas and the
+pasted/emailed signature (they stay in sync). Rows are tight by default, and
+you can still add breathing room deliberately per row via Row Settings >
+Padding Top / Padding Bottom.
 
-Note: if a newly added row is still empty, its columns show a dashed
-"drop here" placeholder with a set height -- that's expected and goes away
-once you drop content into the row.
+Note: this also tightens any existing rows that never had a padding value
+set -- they'll now sit flush instead of with the old 8px. If a specific row
+needs space, set it explicitly in Row Settings.
+
+(Per-element padding, like the 12px on a photo, is separate and unchanged --
+adjust that in the element's own Padding fields.)
 
 DEPLOY
 ------

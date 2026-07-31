@@ -2264,7 +2264,7 @@ function generateSigHTML(sig, profile) {
       // doesn't show.
       rs.backgroundImage ? `background-image:url('${rs.backgroundImage}');background-size:${rs.backgroundSize==="repeat"?"auto":(rs.backgroundSize||"cover")};background-repeat:${rs.backgroundSize==="repeat"?"repeat":"no-repeat"};background-position:center;` : "",
     ].filter(Boolean).join(";");
-    html += `<tr><td style="${rStyle};padding:${rs.paddingTop||"8px"} 0 ${rs.paddingBottom||"8px"} 0;"><table cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;table-layout:fixed;"><tr>`;
+    html += `<tr><td style="${rStyle};padding:${rs.paddingTop||"0px"} 0 ${rs.paddingBottom||"0px"} 0;"><table cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;table-layout:fixed;"><tr>`;
     row.columns.forEach(col => {
       const cs = col.style || {};
       // If this column holds a photo, give it an explicit pixel width
@@ -6267,8 +6267,8 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                 // change what you see. Export uses `rs.paddingTop || "8px"` (same
                 // 8px default), so canvas and paste now match. Set a row to 0px
                 // top/bottom to remove that default gap.
-                paddingTop: (row.style?.paddingTop ?? "8px"),
-                paddingBottom: (row.style?.paddingBottom ?? "8px"),
+                paddingTop: (row.style?.paddingTop ?? "0px"),
+                paddingBottom: (row.style?.paddingBottom ?? "0px"),
                 // Row's own background color takes priority; the selection tint only
                 // applies when there's no custom color set, so a chosen background
                 // now actually shows on the live canvas instead of only in exported
