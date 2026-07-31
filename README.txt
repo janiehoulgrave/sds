@@ -1,25 +1,27 @@
 SignatureStudio update
 =======================
 
-FIX: CIRCLE PHOTOS RENDERING AS OVALS (src/ only -- no API changes)
+FIX: CIRCLE PHOTO WITH A FLATTENED / COLLAPSED EDGE (src/ only -- no API changes)
 
-A circular photo turned into an oval whenever its width and height were
-unequal (e.g. 100px wide x 128px tall). Previously the shape only controlled
-corner rounding, so an unequal box with border-radius:50% drew an ellipse.
-Unequal values can slip in from a template or from editing width/height with
-the size link turned off, which is what caused the "sudden" distortion.
+The real cause of the "one side of the circle is cut off" look: the photo's
+wrapper had overflow:hidden with max-width:100%. When the photo's column was
+narrower than the photo (e.g. a column set to 23% width), the wrapper shrank
+to the column and clipped the overflowing side of the circle flat.
 
-Now, when a photo's shape is Circle, the height is forced to match the width
-so it is always a true, round circle -- on both the live canvas and the
-pasted/emailed signature. The Circle button in the panel also snaps both
-inputs to the width to stay consistent with what you see.
+Two changes:
+  1. Removed the clipping wrapper. The photo image already carries its own
+     rounding and border, so the wrapper no longer needs overflow:hidden --
+     which means it can no longer chop a flat edge off the circle.
+  2. Hardened the photo-column sizing so a photo whose width is stored as a
+     percentage can't be misread as pixels, in both the canvas and the export.
 
-If you actually want an oval, use the Square shape with a 50% corner radius
-(All corners at once) -- that keeps width and height independent.
+Combined with the previous fix (Circle forces height = width), a circular
+photo now stays perfectly round regardless of the column width, on both the
+canvas and the pasted signature.
 
-Nothing else about photo sizing changed: Square photos keep fully independent
-width and height, and borders still sit inside the box so they never distort
-the shape.
+Tip: if a photo column looks too narrow, you can still widen it with the
+Col 1 / Col 2 slider, but you no longer have to in order to keep the circle
+intact.
 
 DEPLOY
 ------

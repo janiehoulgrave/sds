@@ -2097,7 +2097,7 @@ function renderElementInner(el, profile) {
         // the size on the img directly removes that indirection. aspect-
         // ratio is a belt-and-suspenders backstop for modern browsers if
         // max-width ever has to shrink the width below its intended size.
-        return `<div style="display:block;line-height:0;font-size:0;max-width:100%;border-radius:${br};overflow:hidden;mso-margin-top-alt:0;mso-margin-bottom-alt:0;"><img src="${src}" width="${wNum}" height="${hNum}" style="width:${w};height:${h};box-sizing:border-box;aspect-ratio:${wNum}/${hNum};border-radius:${br};${bdr}object-fit:${s.objectFit||"cover"};display:block;" referrerpolicy="no-referrer" /></div>`;
+        return `<div style="display:block;line-height:0;font-size:0;mso-margin-top-alt:0;mso-margin-bottom-alt:0;"><img src="${src}" width="${wNum}" height="${hNum}" style="width:${w};height:${h};box-sizing:border-box;aspect-ratio:${wNum}/${hNum};border-radius:${br};${bdr}object-fit:${s.objectFit||"cover"};display:block;" referrerpolicy="no-referrer" /></div>`;
       }
       case "logo": {
         const src = s.croppedSrc || profile.logoUrl || "";
@@ -2286,7 +2286,7 @@ function generateSigHTML(sig, profile) {
       // as an oval whenever the table itself was narrower than its full
       // design width (Dashboard preview cards, Gmail/Outlook re-rendering).
       const photoEl = col.elements.find(el => el.type === "dynamic" && el.subtype === "photo");
-      const photoSize = photoEl ? (parseInt(photoEl.style?.width) || 90) : null;
+      const photoSize = photoEl ? (String(photoEl.style?.width||"").includes("%") ? 90 : (parseInt(photoEl.style?.width) || 90)) : null;
       // A border on the photo now sits INSIDE its box (box-sizing:border-box),
       // so it does not add to the photo's footprint -- the column width only
       // needs to match the photo width, and the circle/shape stays true even
@@ -6316,7 +6316,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                     // signature. Border now sits inside the photo box
                     // (box-sizing:border-box), so it adds nothing to this width.
                     const photoElC = col.elements.find(el => el.type === "dynamic" && el.subtype === "photo");
-                    const photoSizeC = photoElC ? (parseInt(photoElC.style?.width) || 90) : null;
+                    const photoSizeC = photoElC ? (String(photoElC.style?.width||"").includes("%") ? 90 : (parseInt(photoElC.style?.width) || 90)) : null;
                     const cPadL = col.style?.paddingLeft ? parseInt(col.style.paddingLeft) || 0 : 0;
                     const cPadR = col.style?.paddingRight ? parseInt(col.style.paddingRight) || 0 : 0;
                     const colW = photoSizeC ? `${photoSizeC + cPadL + cPadR}px` : (col.style?.width || `${Math.floor(100/row.columns.length)}%`);
