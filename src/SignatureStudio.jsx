@@ -2725,7 +2725,14 @@ export default function App() {
         if (pubOverrides[p.id]) Object.assign(merged, pubOverrides[p.id]);
         if (templateOverrides[p.id]) Object.assign(merged, templateOverrides[p.id]);
         merged.id = p.id;
-        if (templateOverrides[p.id] || pubOverrides[p.id]) merged.hasOverride = true;
+        // hasLocalEdit = there's an UNPUBLISHED local override (shows the
+        // "Edited locally" badge). isPublished = this preset has a published
+        // override backing it. After publishing, the local override is cleared,
+        // so hasLocalEdit becomes false and the badge disappears -- which is the
+        // correct signal that the edit is now live for everyone.
+        merged.hasLocalEdit = !!templateOverrides[p.id];
+        merged.isPublished = !!pubOverrides[p.id];
+        merged.hasOverride = merged.hasLocalEdit || merged.isPublished;
         return merged;
       }),
     ];
@@ -4362,8 +4369,11 @@ function Gallery({ presets, profile, onUse, onNavigate, adminMode, onEditTemplat
             {p.isCustom && (
               <span style={{ position:"absolute", top:10, left:10, zIndex:2, fontSize:14, fontWeight:700, textTransform:"uppercase", letterSpacing:0.5, padding:"3px 8px", borderRadius:4, background:"#fef3c7", color:"#92400e" }}>Custom</span>
             )}
-            {!p.isCustom && p.hasOverride && (
+            {!p.isCustom && p.hasLocalEdit && (
               <span style={{ position:"absolute", top:10, left:10, zIndex:2, fontSize:14, fontWeight:700, textTransform:"uppercase", letterSpacing:0.5, padding:"3px 8px", borderRadius:4, background:"#dbeafe", color:"#1d4ed8" }}>Edited locally</span>
+            )}
+            {!p.isCustom && !p.hasLocalEdit && p.isPublished && adminMode && (
+              <span style={{ position:"absolute", top:10, left:10, zIndex:2, fontSize:14, fontWeight:700, textTransform:"uppercase", letterSpacing:0.5, padding:"3px 8px", borderRadius:4, background:"#dcfce7", color:"#15803d" }}>Published</span>
             )}
             {adminMode && (
               <div style={{ position:"absolute", top:8, right:8, zIndex:2, display:"flex", gap:4 }}>
@@ -4376,7 +4386,7 @@ function Gallery({ presets, profile, onUse, onNavigate, adminMode, onEditTemplat
                     style={{ width:30, height:30, borderRadius:6, border:"1px solid #fca5a5", background:"#fff", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>
                     <Icon name="delete" size={15} color="#ef4444" />
                   </button>
-                ) : p.hasOverride && (
+                ) : p.hasLocalEdit && (
                   <button onClick={(e)=>{ e.stopPropagation(); setConfirmDialog({ message:`Revert "${p.name}" to its original version? Your local edits will be discarded.`, onConfirm: () => onResetTemplate(p.id) }); }} title="Revert to the original built-in version"
                     style={{ width:30, height:30, borderRadius:6, border:"1px solid #e5e7eb", background:"#fff", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>
                     <Icon name="restart_alt" size={15} color="#374151" />

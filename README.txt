@@ -1,29 +1,27 @@
 SignatureStudio update
 =======================
 
-ADDED 3 AUTHORIZED USERS (src/ + firestore.rules)
+FIX: "EDITED LOCALLY" BADGE STAYING AFTER PUBLISH (src/ only)
 
-Added to the rollout allowlist, in BOTH the code and the Firestore rules:
-    sarah.tareen@compass.com
-    trevor.evans@compass.com
-    ariel.mantilla@compass.com
+Before, a template's "Edited locally" badge kept showing even after you
+published it, because the badge treated local edits and published edits the
+same. Now they're separate:
 
-Full approved list is now 11 people.
+  - "Edited locally" (blue)  -> an UNPUBLISHED local edit only you can see.
+  - "Published" (green, admin-only) -> the edit is live for all users.
 
-DEPLOY -- BOTH PARTS (the two lists must match)
-  1. Firebase console -> Firestore Database -> Rules -> paste firestore.rules ->
-     Publish.
-  2. Drag src/ into the repo root, commit, let Vercel build.
-  3. Hard-refresh.
+When you publish, your local edit is cleared and folded into the published
+version, so the badge switches from "Edited locally" to "Published"
+automatically. The revert button now also only appears when there's an actual
+unpublished local edit to discard.
 
-Until BOTH are done, the 3 new users will either see the app but not be able to
-save (if only the code is deployed) or be blocked despite looking approved (if
-only the rules are published). Do both.
+WHY IT LOOKED STUCK EARLIER
+Publishing was silently failing due to the Firestore quota, so the local edit
+never cleared. Now that you're on the Blaze plan, publishing succeeds and the
+badge updates correctly. This fix + Blaze together resolve it.
 
-This drop also still includes everything recent: the write-quota save fix, the
-publish timeout, the "Start from scratch or use a template" copy, and the
-banner sidebar spacing. And the 14 baked-in templates.
+DEPLOY
+  1. Drag src/ into the repo root, commit, let Vercel build.
+  2. Hard-refresh sds.janienation.com (Cmd+Shift+R).
 
-NOTE: the Firestore quota is still in effect until the daily reset (midnight
-Pacific). These 3 users can sign in once deployed, but saves/publishes won't
-persist until the quota resets.
+No Firebase or rules changes in this drop.
