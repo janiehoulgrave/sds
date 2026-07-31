@@ -1,40 +1,48 @@
 SignatureStudio update
 =======================
 
-FIX STUCK "LOADING YOUR ACCOUNT" + APPROVED-USER ALLOWLIST  (src/ + firestore.rules)
+ONE DEPLOY = TEMPLATES BAKED IN + LOADER FIX + ALLOWLIST  (src/ + firestore.rules)
 
-WHAT WENT WRONG
-The app hung on "Loading your account…" because the account loader was making
-Firestore calls that the new rules denied (your email wasn't in the allowlist
-yet), and a denied call can leave the SDK retrying instead of failing cleanly.
+This single drop gets you fully unstuck and live. It includes everything from
+the last drop PLUS all 14 of your template edits baked directly into the code.
 
-FIXES
-  1. The loader now checks the allowlist BEFORE any Firestore call. A user who
-     isn't approved skips the data load entirely and goes straight to the
-     "Not authorized" screen -- it can never hang on a denied call again.
-  2. The 8 approved emails are baked into BOTH the code and the Firestore rules:
-        janie.houlgrave@compass.com   amy.peery@compass.com
-        laura.carr@compass.com        a.vang@compass.com
-        sarah.menard@compass.com      kimberly.winters@compass.com
-        lindsey.mcnerney@compass.com  toria.hester@compass.com
+1. YOUR 14 TEMPLATE EDITS ARE NOW BUILT IN
+   All 14 edited templates are baked into the shipped defaults, so every
+   approved user gets them automatically on deploy -- no publish step, no
+   localStorage, no browser gymnastics needed:
+     Classic Professional, Elegant Serif, Clean & Focused, Corporate Clean,
+     Editorial, Bold Impact, Modern Luxury, Everyday Essential,
+     Signature Monogram, Modern Editorial, Atelier, Marquee, Prestige,
+     Italic Classic.
+   Each keeps its original thumbnail; your name/description/tagline/style/tags/
+   layout edits are applied on top.
 
-APPROVING MORE PEOPLE LATER
-  Add the lowercase email in TWO places, then redeploy both:
-    - ALLOWED_EMAILS in src/SignatureStudio.jsx
-    - isAllowed() list in firestore.rules
-  The two lists must always match.
+2. LOADER HANG FIX
+   The account loader now checks the allowlist BEFORE any Firestore call, so a
+   not-approved (or mid-rules) user goes straight to "Not authorized" instead of
+   hanging on "Loading your account…". This is what fixes the stuck screen.
 
-OPENING TO ALL COMPASS USERS LATER
-  - In the code: set ALLOWLIST_ENABLED = false
-  - In the rules: make isAllowed() return isCompass()
-  (I can do this final flip for you as a small drop when you're ready.)
+3. ROLLOUT ALLOWLIST (8 approved emails, in code AND rules)
+     janie.houlgrave@compass.com   amy.peery@compass.com
+     laura.carr@compass.com        a.vang@compass.com
+     sarah.menard@compass.com      kimberly.winters@compass.com
+     lindsey.mcnerney@compass.com  toria.hester@compass.com
+
+PUBLISH FLOW GOING FORWARD -- UNAFFECTED
+   You can still tweak any template and hit "Publish to all users" as normal.
+   Published edits (Firestore) layer OVER these baked defaults. The only change:
+   for these 14, "revert to original" now returns to your current baked version,
+   not the pristine Compass preset -- which is almost certainly what you want.
 
 DEPLOY -- RULES FIRST
-  1. Firebase console -> Firestore Database -> Rules -> paste firestore.rules ->
-     Publish. (Do this first, or approved users' saves will be denied.)
-  2. Drag src/ into the repo root, commit, let Vercel build.
-  3. Hard-refresh sds.janienation.com (Cmd+Shift+R).
+   1. Firebase console -> Firestore Database -> Rules -> paste firestore.rules ->
+      Publish. (Your email is in the list, so this unblocks your account.)
+   2. Drag src/ into the repo root, commit, let Vercel build.
+   3. Hard-refresh sds.janienation.com (Cmd+Shift+R).
 
 AFTER DEPLOY
-  Your account (janie.houlgrave@compass.com) will load normally again. The other
-  7 approved users can sign in and use it; anyone else sees "Not authorized."
+   - Your account loads normally again.
+   - All 14 edited templates appear for every approved user, automatically.
+   - You do NOT need to do the console-paste / localStorage restore anymore --
+     the templates ship in the code now. Your earlier localStorage edits are
+     already captured here.
