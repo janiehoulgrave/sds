@@ -1,17 +1,23 @@
 SignatureStudio update
 =======================
 
-FIX: THIN STRIP BELOW THE LAST ROW ON THE CANVAS (src/ only -- no API changes)
+FIX: CENTER ALIGNMENT NOT ACTUALLY CENTERING IMAGES/LOGOS (src/ only -- no API changes)
 
-Every row on the canvas had a 4px bottom margin so rows have a little space
-between them. That margin was also applied to the LAST row, leaving a thin
-strip of empty space between the signature and the bottom edge of the canvas.
+Selecting "Center" (or "Right") on a logo or image in a column didn't truly
+center it when the element also had left/right padding. The horizontal
+padding shrank the centering area on one side, so a "centered" logo sat off
+to the left. In the screenshot the Logo had 23px of left padding, which
+pulled it left of the column's true center.
 
-The bottom margin is now dropped on the last row only, so the canvas ends
-flush with the signature. Spacing between rows is unchanged.
+Fix: for an image or logo that is centered or right-aligned, horizontal
+(left/right) padding is now ignored, since it directly contradicts the
+alignment. Top/bottom padding still applies, and padding on text and other
+element types is unchanged. "Center" now actually centers the image in its
+column, on both the canvas and the pasted signature.
 
-This is a canvas-only cosmetic tweak -- the exported/pasted signature was
-never affected by it.
+If you want to nudge a centered image sideways, change its column width or
+the column gap rather than adding element padding -- padding and centering
+work against each other by nature.
 
 DEPLOY
 ------

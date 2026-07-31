@@ -2236,7 +2236,14 @@ function renderElementHTML(el, profile) {
   // Padding applies universally here (rather than inside each type's own
   // render branch) so every element -- social icons, photos, badges, buttons,
   // dividers, not just text -- respects the Padding control in the panel.
-  const padCss = `${s.paddingTop?'padding-top:'+s.paddingTop+';':''}${s.paddingBottom?'padding-bottom:'+s.paddingBottom+';':''}${s.paddingLeft?'padding-left:'+s.paddingLeft+';':''}${s.paddingRight?'padding-right:'+s.paddingRight+';':''}`;
+  // Exception: for an IMAGE/LOGO that is centered or right-aligned, horizontal
+  // (left/right) padding directly contradicts the alignment -- it shrinks the
+  // centering box asymmetrically and pulls the image off to one side. So we drop
+  // left/right padding for centered/right images and keep only top/bottom, which
+  // is what makes "Center" actually center the logo in its column. Vertical
+  // padding and all padding on other element types is unaffected.
+  const dropHPad = isImg && align && align !== "left";
+  const padCss = `${s.paddingTop?'padding-top:'+s.paddingTop+';':''}${s.paddingBottom?'padding-bottom:'+s.paddingBottom+';':''}${(!dropHPad && s.paddingLeft)?'padding-left:'+s.paddingLeft+';':''}${(!dropHPad && s.paddingRight)?'padding-right:'+s.paddingRight+';':''}`;
   // Social renders an inline-block row of icons. Its padding wrapper must ALSO
   // shrink-wrap (display:inline-block), otherwise it stretches to full column
   // width and the canvas selection outline draws a full-width box offset from
