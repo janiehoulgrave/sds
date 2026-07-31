@@ -4356,11 +4356,12 @@ function RowInsertZone({ index, active, dragActive, onEnter, onLeave, onDropRow 
         }
       }}
       style={{
-        height: dragActive ? 16 : 6,
-        margin: "0 0",
+        height: dragActive ? 16 : 0,
+        margin: 0,
         position: "relative",
         transition: "height 0.1s",
         pointerEvents: dragActive ? "auto" : "none",
+        overflow: "visible",
       }}>
       {active && (
         <div style={{ position:"absolute", left:0, right:0, top:"50%", transform:"translateY(-50%)", height:4, background:"#0051d5", borderRadius:2 }} />
