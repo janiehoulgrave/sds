@@ -5439,26 +5439,66 @@ function DimensionInput({ value, onChange, placeholder, style, allowAuto }) {
   const inputStyleLocal = style || { width:"100%", border:"1px solid #e5e7eb", borderRadius:6, padding:"6px 8px", fontSize:15, fontFamily:"inherit", outline:"none" };
   const [draft, setDraft] = useState(value == null ? "" : String(value));
   const focused = useRef(false);
+  // liveRef mirrors the current numeric string so press-and-hold repeats
+  // compound off the latest value instead of the stale closure value.
+  const liveRef = useRef(value == null ? "" : String(value));
+  const holdTimer = useRef(null);
+  const holdInterval = useRef(null);
   // Keep draft synced with external value when not actively editing
-  useEffect(() => { if (!focused.current) setDraft(value == null ? "" : String(value)); }, [value]);
+  useEffect(() => {
+    if (!focused.current) { const s = value == null ? "" : String(value); setDraft(s); liveRef.current = s; }
+  }, [value]);
+  // Clean up any running hold timers if the component unmounts mid-press
+  useEffect(() => () => { clearTimeout(holdTimer.current); clearInterval(holdInterval.current); }, []);
 
   function commit(v) {
     const norm = normalizeDimension(v);
     setDraft(norm);
+    liveRef.current = norm;
     onChange(norm);
   }
   function step(delta) {
-    const cur = String(draft || value || "");
+    const cur = String(liveRef.current || draft || value || "");
     const m = cur.match(/^(-?\d*\.?\d+)([a-z%]*)$/i);
+    let next;
     if (m) {
       const num = parseFloat(m[1]) + delta;
       const unit = m[2] || "px";
-      const next = (num < 0 ? 0 : num) + unit;
-      setDraft(next); onChange(next);
+      next = (num < 0 ? 0 : num) + unit;
     } else {
-      const next = (delta > 0 ? 1 : 0) + "px";
-      setDraft(next); onChange(next);
+      next = (delta > 0 ? 1 : 0) + "px";
     }
+    liveRef.current = next;
+    setDraft(next);
+    onChange(next);
+  }
+  // Press-and-hold: fire once immediately, then after a short delay begin
+  // repeating, speeding up slightly so long holds move faster.
+  function startHold(delta) {
+    step(delta);
+    clearTimeout(holdTimer.current);
+    clearInterval(holdInterval.current);
+    holdTimer.current = setTimeout(() => {
+      let speed = 80;
+      let count = 0;
+      const run = () => {
+        step(delta);
+        count++;
+        // accelerate: after ~10 repeats, tighten the interval
+        if (count === 10 && speed > 35) {
+          speed = 35;
+          clearInterval(holdInterval.current);
+          holdInterval.current = setInterval(run, speed);
+        }
+      };
+      holdInterval.current = setInterval(run, speed);
+    }, 350);
+  }
+  function stopHold() {
+    clearTimeout(holdTimer.current);
+    clearInterval(holdInterval.current);
+    holdTimer.current = null;
+    holdInterval.current = null;
   }
   const btn = { width:20, height:15, display:"flex", alignItems:"center", justifyContent:"center", border:"1px solid #e5e7eb", background:"#f9fafb", cursor:"pointer", padding:0, lineHeight:0, color:"#6b7280" };
   return (
@@ -5468,7 +5508,7 @@ function DimensionInput({ value, onChange, placeholder, style, allowAuto }) {
         value={draft}
         placeholder={placeholder}
         onFocus={()=>{focused.current=true;}}
-        onChange={e=>setDraft(e.target.value)}
+        onChange={e=>{setDraft(e.target.value); liveRef.current = e.target.value;}}
         onBlur={e=>{focused.current=false; commit(e.target.value);}}
         onKeyDown={e=>{
           if (e.key === "Enter") { commit(e.currentTarget.value); e.currentTarget.blur(); }
@@ -5476,12 +5516,18 @@ function DimensionInput({ value, onChange, placeholder, style, allowAuto }) {
           else if (e.key === "ArrowDown") { e.preventDefault(); step(-1); }
         }} />
       <div style={{ display:"flex", flexDirection:"column" }}>
-        <button type="button" tabIndex={-1} onMouseDown={e=>{e.preventDefault(); step(1);}}
-          style={{ ...btn, borderTopRightRadius:6, borderBottom:"none" }} title="Increase">
+        <button type="button" tabIndex={-1}
+          onMouseDown={e=>{e.preventDefault(); startHold(1);}}
+          onMouseUp={stopHold} onMouseLeave={stopHold}
+          onTouchStart={e=>{e.preventDefault(); startHold(1);}} onTouchEnd={stopHold}
+          style={{ ...btn, borderTopRightRadius:6, borderBottom:"none" }} title="Increase (hold to keep going)">
           <svg width="9" height="6" viewBox="0 0 10 6" fill="none"><path d="M1 5l4-4 4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
         </button>
-        <button type="button" tabIndex={-1} onMouseDown={e=>{e.preventDefault(); step(-1);}}
-          style={{ ...btn, borderBottomRightRadius:6 }} title="Decrease">
+        <button type="button" tabIndex={-1}
+          onMouseDown={e=>{e.preventDefault(); startHold(-1);}}
+          onMouseUp={stopHold} onMouseLeave={stopHold}
+          onTouchStart={e=>{e.preventDefault(); startHold(-1);}} onTouchEnd={stopHold}
+          style={{ ...btn, borderBottomRightRadius:6 }} title="Decrease (hold to keep going)">
           <svg width="9" height="6" viewBox="0 0 10 6" fill="none"><path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
         </button>
       </div>
@@ -5756,6 +5802,38 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
   const [dragStartWidths, setDragStartWidths] = useState([]);
   const canvasRef = useRef(null);
   const canvasWrapperRef = useRef(null);
+  // Email signatures shouldn't grow unbounded -- past roughly this rendered
+  // height they get clipped in preview panes and read as "too long." When the
+  // canvas content reaches this height we block adding more rows/elements and
+  // warn the user. Authored at true 600px width (see CANVAS_SCALE below), so
+  // this is measured in the same un-scaled authoring pixels as offsetHeight.
+  const SIGNATURE_MAX_HEIGHT = 600;
+  const [signatureTooLong, setSignatureTooLong] = useState(false);
+  // Measure the rendered canvas height after every render and flag when the
+  // signature has reached the length ceiling. offsetHeight is the un-scaled
+  // authoring height (the visual scale is applied by a CSS transform on a
+  // wrapper, so it doesn't affect this measurement).
+  useEffect(() => {
+    if (!canvasRef.current) return;
+    const h = canvasRef.current.offsetHeight;
+    setSignatureTooLong(h >= SIGNATURE_MAX_HEIGHT);
+  });
+  // Guarded add actions: once the signature has hit the length ceiling we
+  // refuse to add more content and surface the inline warning (below the
+  // canvas) instead. Editing/removing existing content is still allowed so the
+  // user can bring it back under the limit. Drag-drop reordering (which passes
+  // an insertIndex) is NOT blocked -- only net-new additions are.
+  function guardedAddRow(cols, insertIndex) {
+    // Allow drag-drop repositioning (has an explicit insertIndex) through;
+    // block only fresh appends when we're already over the limit.
+    if (signatureTooLong && !Number.isInteger(insertIndex)) { setSignatureTooLong(true); return null; }
+    return onAddRow(cols, insertIndex);
+  }
+  function guardedAddEl(...args) {
+    if (signatureTooLong) { setSignatureTooLong(true); return; }
+    return onAddEl(...args);
+  }
+
   // Fixed canvas display scale -- the zoom feature (Fit/Fill/percentage
   // control) was removed; it added more layout/positioning complexity than
   // it was worth. The canvas is still authored at a true 600px width, this
@@ -6087,6 +6165,10 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
       } catch {}
     }
 
+    // Past the length ceiling we allow repositioning (handled above) but block
+    // dropping in brand-new media/sidebar content.
+    if (signatureTooLong) { setSignatureTooLong(true); return; }
+
     // ── Media image drop ───────────────────────────────────────────────
     const mediaUrl = e.dataTransfer.getData("media-url");
     if (mediaUrl) { onAddEl("image", "", mediaUrl, { rowId, colId }, targetElIdx); return; }
@@ -6163,7 +6245,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                   {[1,2,3,4].map(n => (
                     <div key={n}
                       draggable onDragStart={e=>{ sidebarDragActiveRef.current = true; setLayoutDragActive(true); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("add-row", n); }} onDragEnd={()=>{ handleSidebarDragEnd(); setLayoutDragActive(false); setRowInsertGap(null); }}
-                      onClick={() => { if (sidebarDragActiveRef.current) return; onAddRow(n); }}
+                      onClick={() => { if (sidebarDragActiveRef.current) return; guardedAddRow(n); }}
                       style={{ border:"1.5px solid #e5e7eb", borderRadius:8, padding:"10px 4px", display:"flex", flexDirection:"column", alignItems:"center", gap:5, cursor:"pointer", background:"#f9fafb" }}
                       onMouseEnter={e=>{e.currentTarget.style.background="#e9edff";e.currentTarget.style.borderColor="#0051d5";}}
                       onMouseLeave={e=>{e.currentTarget.style.background="#f9fafb";e.currentTarget.style.borderColor="#e5e7eb";}}>
@@ -6180,7 +6262,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                   {BASIC_ELEMENTS.map(b => (
                     <div key={b.type}
                       draggable onDragStart={e=>handleSidebarDragStart(e, {type:b.type})} onDragEnd={handleSidebarDragEnd}
-                      onClick={() => { if (sidebarDragActiveRef.current) return; onAddEl(b.type, ""); }}
+                      onClick={() => { if (sidebarDragActiveRef.current) return; guardedAddEl(b.type, ""); }}
                       style={{ background:"#f9fafb", border:"1px solid #e5e7eb", borderRadius:6, padding:"10px 6px", display:"flex", flexDirection:"column", alignItems:"center", gap:4, cursor:"grab", fontSize:15, fontWeight:600, color:"#374151", textAlign:"center", userSelect:"none" }}
                       onMouseEnter={e=>{e.currentTarget.style.background="#e9edff";e.currentTarget.style.borderColor="#0051d5";e.currentTarget.style.color="#0051d5";}}
                       onMouseLeave={e=>{e.currentTarget.style.background="#f9fafb";e.currentTarget.style.borderColor="#e5e7eb";e.currentTarget.style.color="#374151";}}>
@@ -6196,7 +6278,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                   {DYNAMIC_ELEMENTS.map(b => (
                     <div key={b.subtype}
                       draggable onDragStart={e=>handleSidebarDragStart(e, {type:b.type, subtype:b.subtype})} onDragEnd={handleSidebarDragEnd}
-                      onClick={() => { if (sidebarDragActiveRef.current) return; onAddEl(b.type, b.subtype); }}
+                      onClick={() => { if (sidebarDragActiveRef.current) return; guardedAddEl(b.type, b.subtype); }}
                       style={{ background:"#eff6ff", border:"1px solid #bfdbfe", borderRadius:6, padding:"10px 6px", display:"flex", flexDirection:"column", alignItems:"center", gap:4, cursor:"grab", fontSize:15, fontWeight:600, color:"#1d4ed8", textAlign:"center", userSelect:"none" }}
                       onMouseEnter={e=>{e.currentTarget.style.background="#dbeafe";e.currentTarget.style.borderColor="#0051d5";}}
                       onMouseLeave={e=>{e.currentTarget.style.background="#eff6ff";e.currentTarget.style.borderColor="#bfdbfe";}}>
@@ -6228,7 +6310,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                       return (
                       <div key={i}
                         draggable onDragStart={e=>{ sidebarDragActiveRef.current = true; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("sidebar-item", JSON.stringify({type:"image", compassLogoIndex:i})); }} onDragEnd={handleSidebarDragEnd}
-                        onClick={() => { if (sidebarDragActiveRef.current) return; const newRow = onAddRow(1); if (newRow) onAddEl("image", "", logo.url, { rowId: newRow.id, colId: newRow.columns[0].id }, undefined, styleOverride); }}
+                        onClick={() => { if (sidebarDragActiveRef.current) return; const newRow = guardedAddRow(1); if (newRow) onAddEl("image", "", logo.url, { rowId: newRow.id, colId: newRow.columns[0].id }, undefined, styleOverride); }}
                         style={{ border:"1px solid #e5e7eb", borderRadius:6, padding:8, cursor:"grab", background:"#f9fafb", display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}
                         onMouseEnter={e=>{e.currentTarget.style.borderColor="#0051d5";e.currentTarget.style.background="#eff6ff";}}
                         onMouseLeave={e=>{e.currentTarget.style.borderColor="#e5e7eb";e.currentTarget.style.background="#f9fafb";}}>
@@ -6262,7 +6344,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                             draggable
                             onDragStart={e=>{ sidebarDragActiveRef.current = true; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("sidebar-item", JSON.stringify({type:"image", compassBannerId:banner.id})); }}
                             onDragEnd={handleSidebarDragEnd}
-                            onClick={() => { if (sidebarDragActiveRef.current) return; onAddBanner(banner.url, banner.w, banner.h); }}
+                            onClick={() => { if (sidebarDragActiveRef.current) return; if (signatureTooLong) { setSignatureTooLong(true); return; } onAddBanner(banner.url, banner.w, banner.h); }}
                             style={{ position:"relative", border:"1px solid #e5e7eb", borderRadius:6, overflow:"hidden", cursor:"grab", background:"#111" }}
                             onMouseEnter={e=>{e.currentTarget.style.borderColor="#0051d5";e.currentTarget.style.boxShadow="0 0 0 2px #0051d520";}}
                             onMouseLeave={e=>{e.currentTarget.style.borderColor="#e5e7eb";e.currentTarget.style.boxShadow="none";}}>
@@ -6505,7 +6587,8 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
           onDragOver={e=>{ e.preventDefault(); e.dataTransfer.dropEffect="move"; }}
           onDrop={e=>{
             const r = e.dataTransfer.getData("add-row");
-            if (r) { onAddRow(parseInt(r)); return; }
+            if (r) { guardedAddRow(parseInt(r)); return; }
+            if (signatureTooLong) { setSignatureTooLong(true); return; }
             const raw = e.dataTransfer.getData("sidebar-item");
             if (raw) {
               try {
@@ -6528,7 +6611,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
             <Fragment key={row.id}>
             <RowInsertZone index={ri} active={rowInsertGap===ri} dragActive={layoutDragActive}
               onEnter={setRowInsertGap} onLeave={(i)=>setRowInsertGap(prev=>prev===i?null:prev)}
-              onDropRow={(cols,idx)=>{ onAddRow(cols, idx); setLayoutDragActive(false); }} />
+              onDropRow={(cols,idx)=>{ guardedAddRow(cols, idx); setLayoutDragActive(false); }} />
             <div style={{ position:"relative" }}>
             {/* Row select toggle in the grey margin on the right */}
             <RowSelectBadge rowIdx={ri} isSelected={row.id===selectedRowId}
@@ -6722,11 +6805,22 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
             {ri === sig.rows.length - 1 && (
               <RowInsertZone index={ri+1} active={rowInsertGap===ri+1} dragActive={layoutDragActive}
                 onEnter={setRowInsertGap} onLeave={(i)=>setRowInsertGap(prev=>prev===i?null:prev)}
-                onDropRow={(cols,idx)=>{ onAddRow(cols, idx); setLayoutDragActive(false); }} />
+                onDropRow={(cols,idx)=>{ guardedAddRow(cols, idx); setLayoutDragActive(false); }} />
             )}
             </Fragment>
           ))}
         </div>
+        {signatureTooLong && (
+          <div style={{ display:"flex", alignItems:"flex-start", gap:10, background:"#fef2f2", border:"1px solid #fecaca",
+              borderRadius:8, padding:"11px 14px", maxWidth:600, boxSizing:"border-box", color:"#991b1b" }}>
+            <Icon name="warning" size={18} color="#dc2626" />
+            <div style={{ fontSize:13, lineHeight:1.45 }}>
+              <div style={{ fontWeight:700, marginBottom:2 }}>Your signature has become too long</div>
+              Email signatures this tall can get clipped in inboxes. Remove a row or element, or make some
+              items smaller, before adding anything else.
+            </div>
+          </div>
+        )}
         </div>
         </div>
       </div>
