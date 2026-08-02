@@ -3976,8 +3976,8 @@ function RecentProjects({ signatures, profile, onOpen, onDelete, onRename, onDup
               {/* Signature preview */}
               <div style={{ height:130, background:"#fff", borderBottom:"1px solid #e5e7eb", position:"relative", overflow:"hidden", cursor:"pointer" }}
                 onClick={()=>onOpen(sig)}>
-                <div style={{ position:"absolute", top:0, left:0, right:0, bottom:0, display:"flex", alignItems:"flex-start", justifyContent:"flex-start" }}>
-                  <div style={{ width:580, transformOrigin:"top left", transform:"scale(0.44)", padding:"10px 14px", pointerEvents:"none", flexShrink:0 }}>
+                <div style={{ position:"absolute", top:0, left:0, right:0, bottom:0, overflow:"hidden" }}>
+                  <div style={{ width:560, transformOrigin:"top left", transform:"scale(0.6)", padding:"10px 12px", pointerEvents:"none" }}>
                     <SignatureRenderer signature={sig} profile={profile} />
                   </div>
                 </div>
@@ -4230,10 +4230,13 @@ function Dashboard({ signatures, profile, onNavigate, onOpenSig, onDeleteSig, on
                 <span style={{ fontSize:15, fontWeight:700, textTransform:"uppercase", letterSpacing:0.5, padding:"2px 7px", borderRadius:4, background:"#ecfdf5", color:"#059669", flexShrink:0 }}>Active</span>
               </div>
 
-              {/* Signature preview — scales to card width, crops to fixed height */}
-              <div style={{ height:120, border:"1px solid #e5e7eb", borderRadius:8, background:"#fff", overflow:"hidden", marginBottom:12, position:"relative" }}>
-                <div style={{ position:"absolute", top:0, left:0, right:0, bottom:0, display:"flex", alignItems:"flex-start", justifyContent:"flex-start" }}>
-                  <div style={{ width:580, transformOrigin:"top left", transform:"scale(0.44)", padding:"10px 14px", pointerEvents:"none", flexShrink:0 }}>
+              {/* Signature preview — renders the signature at its true 560px
+                  authoring width and scales it to fit the card. Left-aligned
+                  (signatures read left-to-right) with the box hugging the
+                  scaled height so it no longer stretches well past the art. */}
+              <div style={{ height:130, border:"1px solid #e5e7eb", borderRadius:8, background:"#fff", overflow:"hidden", marginBottom:12, position:"relative" }}>
+                <div style={{ position:"absolute", top:0, left:0, right:0, bottom:0, overflow:"hidden" }}>
+                  <div style={{ width:560, transformOrigin:"top left", transform:"scale(0.6)", padding:"10px 12px", pointerEvents:"none" }}>
                     <SignatureRenderer signature={sig} profile={profile} />
                   </div>
                 </div>
@@ -4396,7 +4399,13 @@ function Gallery({ presets, profile, onUse, onNavigate, adminMode, onEditTemplat
             )}
             <div style={{ background:"#f9f9ff", borderBottom:"1px solid #f3f4f6", padding:"20px 24px", display:"flex", alignItems:"center", justifyContent:"center", minHeight:100 }}>
               {p.thumbnail ? (
-                <img src={p.thumbnail} alt={p.name} style={{ width:"100%", height:"auto", maxWidth:560, display:"block", objectFit:"contain" }} />
+                // The baked mockup thumbnails are 600px wide sources. Displaying
+                // them larger than ~300px CSS forces the browser to upscale on
+                // 2x/Retina screens, which is what read as blurry. Capping the
+                // display width at 300px keeps them at (or below) native
+                // resolution on Retina so they stay crisp. crispEdges is a mild
+                // extra hint; the real lever is the source width.
+                <img src={p.thumbnail} alt={p.name} style={{ width:"100%", height:"auto", maxWidth:300, display:"block", objectFit:"contain" }} />
               ) : (
                 <Icon name="dashboard_customize" size={40} color="#c7cbd1" />
               )}
