@@ -4617,6 +4617,7 @@ function ColSelectBadge({ colIdx, isSelected, visible, onClick }) {
 // Row select toggle shown in the grey area on the right of each row
 function RowSelectBadge({ rowIdx, isSelected, onClick }) {
   const [hov, setHov] = useState(false);
+  const color = (isSelected||hov) ? "#fff" : "#9ca3af";
   return (
     <div
       onMouseEnter={() => setHov(true)}
@@ -4625,12 +4626,13 @@ function RowSelectBadge({ rowIdx, isSelected, onClick }) {
       style={{
         position:"absolute", right:-38, top:"50%", transform:"translateY(-50%)",
         background: isSelected ? "#0051d5" : hov ? "#3b82f6" : "#e5e7eb",
-        color: (isSelected||hov) ? "#fff" : "#9ca3af",
+        color,
         borderRadius:"3px 0 0 3px", padding:"4px 5px", fontSize:8, fontWeight:700,
         cursor:"pointer", zIndex:10, userSelect:"none", transition:"all 0.1s",
         display:"flex", flexDirection:"column", alignItems:"center", gap:1,
         pointerEvents:"all"
       }}>
+      <Icon name="drag_indicator" size={13} color={color} />
       <span style={{ fontSize:15 }}>ROW</span>
       <span>{rowIdx+1}</span>
     </div>
