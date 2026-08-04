@@ -5858,6 +5858,15 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
   // this is measured in the same un-scaled authoring pixels as offsetHeight.
   const SIGNATURE_MAX_HEIGHT = 600;
   const [signatureTooLong, setSignatureTooLong] = useState(false);
+  // Real un-scaled canvas height, used to correctly compensate the CSS
+  // transform's layout box below (see canvasScale/marginBottom) -- using the
+  // canvas's fixed WIDTH (600) there instead of its actual height used to be
+  // a harmless over-estimate back when the scale was always > 1 (just left a
+  // little extra whitespace), but once the scale can drop below 1 on a
+  // narrower screen that same wrong number flips into an over-negative
+  // margin, which clips the bottom of the canvas against the wrapper's
+  // overflow:hidden. Tracking the real height fixes that at any scale.
+  const [canvasContentHeight, setCanvasContentHeight] = useState(SIGNATURE_MAX_HEIGHT);
   // Measure the rendered canvas height after every render and flag when the
   // signature has reached the length ceiling. offsetHeight is the un-scaled
   // authoring height (the visual scale is applied by a CSS transform on a
@@ -5866,6 +5875,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
     if (!canvasRef.current) return;
     const h = canvasRef.current.offsetHeight;
     setSignatureTooLong(h >= SIGNATURE_MAX_HEIGHT);
+    setCanvasContentHeight(h);
   });
   // Guarded add actions: once the signature has hit the length ceiling we
   // refuse to add more content and surface the inline warning (below the
@@ -6653,7 +6663,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                 {/* Canvas body -- capped at 600px + right gutter for row badges,
                     top gutter for column badges */}
         <div style={{ maxWidth:900, margin:"0 auto", paddingRight:44, paddingTop:8, boxSizing:"border-box", width:"100%", display:"flex", justifyContent:"center", overflow:"hidden" }}>
-        <div style={{ width:600, flexShrink:0, transform:`scale(${canvasScale})`, transformOrigin:"top center", marginBottom: 600*(canvasScale-1) }}>
+        <div style={{ width:600, flexShrink:0, transform:`scale(${canvasScale})`, transformOrigin:"top center", marginBottom: canvasContentHeight*(canvasScale-1) }}>
         <div ref={canvasRef} className="canvas-container" style={{ background:"#fff", border:"1px solid #e5e7eb", width:600, maxWidth:600, margin:"0", boxSizing:"border-box", position:"relative" }}
           onClick={() => { setSelectedRowId(null); setSelectedElId(null); setSelectedColId(null); }}
           onDragOver={e=>{ e.preventDefault(); e.dataTransfer.dropEffect="move"; }}
