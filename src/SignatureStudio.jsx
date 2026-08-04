@@ -2144,7 +2144,15 @@ function renderElementInner(el, profile) {
         // the size on the img directly removes that indirection. aspect-
         // ratio is a belt-and-suspenders backstop for modern browsers if
         // max-width ever has to shrink the width below its intended size.
-        return `<div style="display:block;line-height:0;font-size:0;mso-margin-top-alt:0;mso-margin-bottom-alt:0;"><img src="${src}" width="${wNum}" height="${hNum}" style="width:${w};height:${h};box-sizing:border-box;aspect-ratio:${wNum}/${hNum};border-radius:${br};${bdr}object-fit:${s.objectFit||"cover"};display:block;" referrerpolicy="no-referrer" /></div>`;
+        //
+        // max-width:100% + height:auto is what actually makes that shrink
+        // happen -- without it the img ignored the column entirely and just
+        // rendered at its full pixel size, overflowing a narrow column
+        // instead of scaling down with it. aspect-ratio keeps the shape
+        // (circle stays round, not squished) once height goes to auto. The
+        // width/height HTML attributes stay as-is for Outlook, which doesn't
+        // understand max-width/aspect-ratio and needs the fallback.
+        return `<div style="display:block;line-height:0;font-size:0;mso-margin-top-alt:0;mso-margin-bottom-alt:0;"><img src="${src}" width="${wNum}" height="${hNum}" style="width:${w};max-width:100%;height:auto;box-sizing:border-box;aspect-ratio:${wNum}/${hNum};border-radius:${br};${bdr}object-fit:${s.objectFit||"cover"};display:block;" referrerpolicy="no-referrer" /></div>`;
       }
       case "logo": {
         const src = s.croppedSrc || profile.logoUrl || "";
