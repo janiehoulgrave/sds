@@ -4627,7 +4627,7 @@ function RowSelectBadge({ rowIdx, isSelected, onClick }) {
         position:"absolute", right:-38, top:"50%", transform:"translateY(-50%)",
         background: isSelected ? "#0051d5" : hov ? "#3b82f6" : "#e5e7eb",
         color,
-        borderRadius:"3px 0 0 3px", padding:"4px 5px", fontSize:8, fontWeight:700,
+        borderRadius:3, padding:"4px 5px", fontSize:8, fontWeight:700,
         cursor:"pointer", zIndex:10, userSelect:"none", transition:"all 0.1s",
         display:"flex", flexDirection:"column", alignItems:"center", gap:1,
         pointerEvents:"all"
