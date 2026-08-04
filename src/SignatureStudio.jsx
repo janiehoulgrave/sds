@@ -2675,7 +2675,13 @@ export default function App() {
       }
       // Clear the hash so it doesn't re-import on refresh
       window.history.replaceState(null, "", window.location.pathname);
-      showToast("Shared design imported! Find it in Recent Projects.");
+      // Drop them straight into the editor with their new copy loaded, rather
+      // than leaving them on the dashboard to go find it themselves. It's
+      // fully theirs at this point -- saveSigs() above already wrote it to
+      // their own account, so edits here save like any other design of
+      // theirs.
+      openEditor(already || imported);
+      showToast("Shared design imported! It's yours to edit now.");
     }
 
     if (isShortLink) {
