@@ -27,6 +27,7 @@ const ALLOWED_EMAILS = [
   "sarah.tareen@compass.com",
   "trevor.evans@compass.com",
   "ariel.mantilla@compass.com",
+  "natalie.robinson@compass.com",
 ];
 function isEmailAllowed(email) {
   if (!ALLOWLIST_ENABLED) return true;
