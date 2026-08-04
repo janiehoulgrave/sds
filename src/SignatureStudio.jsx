@@ -2641,14 +2641,24 @@ export default function App() {
   // for account data to finish loading first -- otherwise this could run
   // before the Firestore fetch resolves, and the later fetch would overwrite
   // the just-imported signature with data that doesn't include it yet.
+  //
+  // Two link formats are supported:
+  //   #s=<shortId>   -- current format. The full signature JSON lives in
+  //                      Firestore at shared/<shortId>; the link only carries
+  //                      the short id, which keeps URLs short.
+  //   #share=<base64> -- legacy format from before the Firestore-backed
+  //                       short links. The whole signature JSON was
+  //                       base64-encoded directly into the URL, which is why
+  //                       old links could get astronomically long. Kept here
+  //                       so links people already shared/saved still work.
   useEffect(() => {
     if (accountLoading) return;
     const hash = window.location.hash;
-    if (!hash.startsWith("#share=")) return;
-    try {
-      const encoded = hash.slice(7);
-      const json = decodeURIComponent(atob(encoded));
-      const shared = JSON.parse(json);
+    const isShortLink = hash.startsWith("#s=");
+    const isLegacyLink = hash.startsWith("#share=");
+    if (!isShortLink && !isLegacyLink) return;
+
+    function importShared(shared) {
       if (!shared || !shared.rows) return;
       // Give it a new ID and import as a copy
       const imported = {
@@ -2665,6 +2675,31 @@ export default function App() {
       // Clear the hash so it doesn't re-import on refresh
       window.history.replaceState(null, "", window.location.pathname);
       showToast("Shared design imported! Find it in Recent Projects.");
+    }
+
+    if (isShortLink) {
+      const shortId = hash.slice(3);
+      (async () => {
+        try {
+          const snap = await getDoc(doc(db, "shared", shortId));
+          if (!snap.exists()) {
+            window.history.replaceState(null, "", window.location.pathname);
+            showToast("That share link has expired or is invalid.");
+            return;
+          }
+          importShared(snap.data());
+        } catch(e) {
+          console.warn("Could not import shared design:", e);
+        }
+      })();
+      return;
+    }
+
+    // Legacy base64-in-URL format
+    try {
+      const encoded = hash.slice(7);
+      const json = decodeURIComponent(atob(encoded));
+      importShared(JSON.parse(json));
     } catch(e) {
       console.warn("Could not import shared design:", e);
     }
@@ -3111,18 +3146,25 @@ export default function App() {
     openEditor(blank);
   }
 
-  function generateShareLink(sig) {
+  // Writes the signature to a short-lived Firestore doc (shared/<shortId>)
+  // and returns a link carrying only that id, instead of base64-encoding the
+  // whole signature into the URL (the old approach behind the "astronomically
+  // long" share links). Requires Firestore security rules that let signed-in
+  // users create docs under shared/ and let anyone read them.
+  async function generateShareLink(sig) {
     if (!sig) return null;
     try {
-      const json = JSON.stringify(sig);
-      const encoded = btoa(encodeURIComponent(json));
-      const url = window.location.origin + window.location.pathname + "#share=" + encoded;
-      return url;
-    } catch(e) { return null; }
+      const shortId = uuid();
+      await setDoc(doc(db, "shared", shortId), sig);
+      return window.location.origin + window.location.pathname + "#s=" + shortId;
+    } catch(e) {
+      console.warn("Could not create share link:", e);
+      return null;
+    }
   }
 
-  function copyShareLink(sig) {
-    const url = generateShareLink(sig);
+  async function copyShareLink(sig) {
+    const url = await generateShareLink(sig);
     if (!url) { showToast("Could not generate link."); return; }
     navigator.clipboard?.writeText(url).then(() => {
       showToast("Share link copied! Anyone with this link can import a copy.");
@@ -5839,11 +5881,34 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
     return onAddEl(...args);
   }
 
-  // Fixed canvas display scale -- the zoom feature (Fit/Fill/percentage
-  // control) was removed; it added more layout/positioning complexity than
-  // it was worth. The canvas is still authored at a true 600px width, this
-  // just controls how large it displays on screen.
-  const CANVAS_SCALE = 1.38;
+  // Canvas display scale -- the zoom feature (Fit/Fill/percentage control)
+  // was removed; it added more layout/positioning complexity than it was
+  // worth. The canvas is still authored at a true 600px width; this just
+  // controls how large it displays on screen. 1.38 is the "full size" scale
+  // on a normal/large screen. On a narrower window (e.g. a smaller Mac
+  // display) that would render past the available width and get clipped, so
+  // we measure the panel's available width and shrink the scale to fit,
+  // capped at 1.38 so nothing changes on screens that already have room.
+  const CANVAS_MAX_SCALE = 1.38;
+  const [canvasScale, setCanvasScale] = useState(CANVAS_MAX_SCALE);
+  useEffect(() => {
+    const el = canvasWrapperRef.current;
+    if (!el) return;
+    // Canvas is authored at 600px; the wrapper around it adds a 44px right
+    // gutter (for row badges) plus ~40px of horizontal padding, so subtract
+    // that before dividing by 600 to get the scale that just fits.
+    const RESERVED_WIDTH = 44 + 40;
+    function recalc() {
+      const available = el.clientWidth - RESERVED_WIDTH;
+      if (available <= 0) return;
+      const fitScale = available / 600;
+      setCanvasScale(Math.min(CANVAS_MAX_SCALE, Math.max(0.5, fitScale)));
+    }
+    recalc();
+    const ro = new ResizeObserver(recalc);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // Drag-and-drop from sidebar state
   const [dragOver, setDragOver] = useState(null); // {rowId, colId, elIdx}
@@ -6586,7 +6651,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                 {/* Canvas body -- capped at 600px + right gutter for row badges,
                     top gutter for column badges */}
         <div style={{ maxWidth:900, margin:"0 auto", paddingRight:44, paddingTop:8, boxSizing:"border-box", width:"100%", display:"flex", justifyContent:"center", overflow:"hidden" }}>
-        <div style={{ width:600, flexShrink:0, transform:`scale(${CANVAS_SCALE})`, transformOrigin:"top center", marginBottom: 600*(CANVAS_SCALE-1) }}>
+        <div style={{ width:600, flexShrink:0, transform:`scale(${canvasScale})`, transformOrigin:"top center", marginBottom: 600*(canvasScale-1) }}>
         <div ref={canvasRef} className="canvas-container" style={{ background:"#fff", border:"1px solid #e5e7eb", width:600, maxWidth:600, margin:"0", boxSizing:"border-box", position:"relative" }}
           onClick={() => { setSelectedRowId(null); setSelectedElId(null); setSelectedColId(null); }}
           onDragOver={e=>{ e.preventDefault(); e.dataTransfer.dropEffect="move"; }}
