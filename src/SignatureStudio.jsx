@@ -81,6 +81,20 @@ function ensureHref(url) {
   return "https://" + u.replace(/^\/+/, "");
 }
 
+// Builds an href for a text element's optional link, based on which link
+// type the person picked in the panel (website/email/phone). This is what
+// lets someone just type "jane@compass.com" or "804 555 1234" without
+// needing to know to type mailto:/tel: themselves -- the scheme is applied
+// here based on the selected type instead of guessed from the input.
+function buildLinkHref(linkType, value) {
+  if (!value) return "";
+  const v = String(value).trim();
+  if (!v) return "";
+  if (linkType === "email") return /^mailto:/i.test(v) ? v : "mailto:" + v;
+  if (linkType === "phone") return /^tel:/i.test(v) ? v : "tel:" + v.replace(/[^\d+]/g, "");
+  return ensureHref(v);
+}
+
 function interpolate(text, profile) {
   if (!text) return "";
   // Convert (R) shorthand to registered trademark symbol
@@ -2055,7 +2069,12 @@ function renderElementInner(el, profile) {
   }
 
   if (el.type === "text") {
-    return textLine(interpolate(el.content || "", profile));
+    const content = interpolate(el.content || "", profile);
+    const href = el.linkType ? buildLinkHref(el.linkType, el.linkUrl) : "";
+    if (href) {
+      return textLine(`<a href="${href}" style="color:inherit;text-decoration:none;">${content}</a>`);
+    }
+    return textLine(content);
   }
   if (el.type === "image") {
     const src = el.content || "";
@@ -3262,6 +3281,11 @@ export default function App() {
     val = normalizeColorValue(key, val);
     if (key === "__linkUrl__") {
       const updated = { ...activeSig, rows: activeSig.rows.map(r => ({ ...r, columns: r.columns.map(c => ({ ...c, elements: c.elements.map(e => e.id === selectedElId ? { ...e, linkUrl: val } : e) })) })) };
+      pushSig(updated);
+      return;
+    }
+    if (key === "__linkType__") {
+      const updated = { ...activeSig, rows: activeSig.rows.map(r => ({ ...r, columns: r.columns.map(c => ({ ...c, elements: c.elements.map(e => e.id === selectedElId ? { ...e, linkType: val } : e) })) })) };
       pushSig(updated);
       return;
     }
@@ -6963,6 +6987,32 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
               <div style={{ marginBottom:10 }}>
                 <span style={propLabel}>Content</span>
                 <textarea style={{ ...inputStyle, resize:"vertical" }} rows={3} value={selectedEl.content||""} onChange={e=>onUpdateElContent(e.target.value)} />
+              </div>
+            )}
+
+            {/* Link -- lets any text element become clickable, pointing to a
+                website, an email address (mailto:), or a phone number
+                (tel:). linkType tells buildLinkHref() which scheme to apply
+                so the person can just type "jane@compass.com" or a phone
+                number as-is instead of needing to know the mailto:/tel:
+                syntax themselves. */}
+            {selectedEl.type==="text" && (
+              <div style={{ marginBottom:10 }}>
+                <span style={propLabel}>Link</span>
+                <select style={inputStyle} value={selectedEl.linkType||""} onChange={e=>{
+                  onUpdateElStyle("__linkType__", e.target.value);
+                }}>
+                  <option value="">None</option>
+                  <option value="website">Website</option>
+                  <option value="email">Email</option>
+                  <option value="phone">Phone</option>
+                </select>
+                {selectedEl.linkType && (
+                  <input style={{ ...inputStyle, marginTop:6 }}
+                    placeholder={selectedEl.linkType==="email" ? "jane@compass.com" : selectedEl.linkType==="phone" ? "804.555.1234" : "https://"}
+                    value={selectedEl.linkUrl||""}
+                    onChange={e=>{ onUpdateElStyle("__linkUrl__", e.target.value); }} />
+                )}
               </div>
             )}
 
