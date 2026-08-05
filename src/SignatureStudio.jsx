@@ -5359,6 +5359,104 @@ function tryExecCommandCopy(html, asPlainText) {
   }
 }
 
+// Center-crops a source image (any URL, including a data URI) to exactly
+// match a target width:height ratio, entirely at the pixel level. This is
+// what removes the dependency on object-fit:cover for correct display in
+// email clients -- Gmail's signature save/paste sanitizer was confirmed (via
+// inspecting the actual saved HTML) to strip object-fit and box-sizing from
+// an <img>'s style entirely, which makes the browser fall back to stretching
+// the source non-uniformly to fill the box instead of cropping it. Once the
+// source pixels already match the box's ratio, there's nothing left for a
+// client to get wrong even with zero CSS support for cropping.
+function cropImageToRatio(src, targetW, targetH) {
+  return new Promise((resolve) => {
+    if (!src || !targetW || !targetH) { resolve(src); return; }
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const targetRatio = targetW / targetH;
+        const srcRatio = img.width / img.height;
+        let sx, sy, sw, sh;
+        if (srcRatio > targetRatio) {
+          // Source is relatively wider than the target box -- crop the sides.
+          sh = img.height;
+          sw = sh * targetRatio;
+          sx = (img.width - sw) / 2;
+          sy = 0;
+        } else {
+          // Source is relatively taller than the target box -- crop top/bottom.
+          sw = img.width;
+          sh = sw / targetRatio;
+          sx = 0;
+          sy = (img.height - sh) / 2;
+        }
+        const canvas = document.createElement("canvas");
+        // Render at 2x the target's display size for sharpness on retina
+        // screens, capped to the actual cropped source resolution so we
+        // never upscale past what the original photo actually has.
+        const outW = Math.max(1, Math.min(Math.round(targetW * 2), Math.round(sw)));
+        const outH = Math.max(1, Math.round(outW / targetRatio));
+        canvas.width = outW;
+        canvas.height = outH;
+        const ctx = canvas.getContext("2d");
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, outW, outH);
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, outW, outH);
+        resolve(canvas.toDataURL("image/jpeg", 0.85));
+      } catch (e) {
+        resolve(src); // Fall back to the original source on any canvas failure.
+      }
+    };
+    img.onerror = () => resolve(src);
+    img.src = src;
+  });
+}
+
+// Walks a signature and, for any photo element that's using the raw shared
+// headshot rather than a manually-cropped one (no style.croppedSrc set),
+// generates a pixel-cropped version matching that element's actual box
+// ratio and swaps it in on a throwaway copy used only for export. This runs
+// automatically on every copy/export -- nobody has to remember to run the
+// Crop Photo tool for signatures to paste into Gmail correctly. The real
+// saved signature is untouched; a fresh profile photo is picked up and
+// re-cropped on the next export rather than getting stuck on an old crop.
+//
+// This always re-crops from whatever the CURRENT source is (a prior manual
+// crop, if one exists, otherwise the raw shared headshot) -- it does not
+// skip elements that already have a croppedSrc. A manual crop made back when
+// the photo box was a different size keeps its old pixel ratio forever
+// otherwise; the box can get resized later (we've seen this happen: 100x128
+// then later 107x137) without the crop ever being redone, so the source
+// pixels quietly drift out of sync with the box. Since Gmail doesn't
+// reliably keep object-fit, that mismatch reads as a stretched/squished
+// photo with no CSS left to correct it. Re-cropping from the existing
+// (already-framed) image each time is cheap when the ratio already matches
+// -- it's a near no-op center-crop -- and self-heals it when it doesn't.
+async function prepareSigForExport(sig, profile) {
+  if (!sig || !sig.rows) return sig;
+  const rows = await Promise.all(sig.rows.map(async row => {
+    const columns = await Promise.all(row.columns.map(async col => {
+      const elements = await Promise.all(col.elements.map(async el => {
+        if (el.type !== "dynamic" || el.subtype !== "photo") return el;
+        const s = el.style || {};
+        const rawSrc = s.croppedSrc || profile.photoUrl;
+        if (!rawSrc) return el;
+        const isCircle = s.imageShape === "circle";
+        const w = parseInt(s.width) || 90;
+        const h = isCircle ? w : (parseInt(s.height) || 90);
+        const cropped = await cropImageToRatio(rawSrc, w, h);
+        if (!cropped || cropped === rawSrc) return el;
+        return { ...el, style: { ...s, croppedSrc: cropped } };
+      }));
+      return { ...col, elements };
+    }));
+    return { ...row, columns };
+  }));
+  return { ...sig, rows };
+}
+
 function normalizeImageFile(file, cb, maxDim, opts) {
   const cap = maxDim || 800;
   // JPEG compresses photographic content (headshots, banners) dramatically
@@ -6159,13 +6257,17 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
   // fallback used that same gated API, so a permission failure was invisible.
   const [copyFailed, setCopyFailed] = useState(false);
 
-  function generateHTML() {
-    // Import generateSigHTML from outer scope
-    return generateSigHTML(sig, profile);
+  async function generateHTML() {
+    // Auto-crops any photo still using the raw shared headshot to match its
+    // box's exact ratio before generating the export HTML -- see
+    // prepareSigForExport for why (Gmail strips object-fit from pasted
+    // signatures, so relying on CSS to crop no longer works reliably).
+    const exportSig = await prepareSigForExport(sig, profile);
+    return generateSigHTML(exportSig, profile);
   }
 
-  function copyHtml() {
-    const html = generateHTML();
+  async function copyHtml() {
+    const html = await generateHTML();
     if (tryExecCommandCopy(html, /*asPlainText*/ true)) {
       setCopiedHtml(true); setCopyFailed(false); setTimeout(() => setCopiedHtml(false), 2000);
       return;
@@ -6181,7 +6283,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
   // tryExecCommandCopy for why).
 
   async function copyRich() {
-    const html = generateHTML();
+    const html = await generateHTML();
     // Try execCommand first (most likely to actually work in this iframe).
     if (tryExecCommandCopy(html, false)) {
       setCopiedRich(true); setCopyFailed(false); setTimeout(() => setCopiedRich(false), 2500);
@@ -7951,7 +8053,21 @@ function ExportScreen({ sig, profile, onNavigate, onSave }) {
   const [copiedRich, setCopiedRich] = useState(false);
   const [copiedHtml, setCopiedHtml] = useState(false);
   const [showSource, setShowSource] = useState(false);
-  const rawHtml = generateSigHTML(sig, profile);
+  // Auto-crops any photo still using the raw shared headshot to match its
+  // box's exact ratio before generating the export HTML -- see
+  // prepareSigForExport for why. That crop is async (loads/draws the image
+  // via canvas), so it's resolved into state here rather than computed
+  // inline, but everything below (copy buttons, the raw-HTML viewer) reads
+  // from this same already-cropped rawHtml either way.
+  const [rawHtml, setRawHtml] = useState(() => generateSigHTML(sig, profile));
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const exportSig = await prepareSigForExport(sig, profile);
+      if (!cancelled) setRawHtml(generateSigHTML(exportSig, profile));
+    })();
+    return () => { cancelled = true; };
+  }, [sig, profile]);
 
   function copyRich() {
     const el = document.createElement("div");
