@@ -6758,6 +6758,14 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                   <span style={{ fontSize:15, fontWeight:700, borderBottom:`3px solid ${(el.style?.color||"#374151").replace("colored","#374151")}`, lineHeight:1.1, paddingBottom:1 }}>A</span>
                   <input type="color" style={{ width:26, height:26, border:"1px solid #e5e7eb", borderRadius:4, padding:1, cursor:"pointer" }}
                     value={(el.style?.color||"#374151").replace("colored","#374151")} onChange={e=>onUpdateElStyle("color",e.target.value)} />
+                  {/* Hex text field alongside the swatch -- the swatch itself opens the
+                      OS's native color picker (the macOS system panel on a Mac), which
+                      is outside anything this app's code can control, including which
+                      tab it opens to. Typing/pasting a hex code here sidesteps that
+                      picker entirely, matching how background/border color already work
+                      elsewhere in the panel. */}
+                  <input type="text" style={{ width:70, height:26, border:"1px solid #e5e7eb", borderRadius:4, padding:"0 6px", fontSize:12, fontFamily:"inherit" }}
+                    value={(el.style?.color||"#374151").replace("colored","#374151")} onChange={e=>onUpdateElStyle("color",e.target.value)} />
                 </div>
                 <div style={{ width:1, height:22, background:"#e5e7eb", margin:"0 2px" }} />
                 {[
