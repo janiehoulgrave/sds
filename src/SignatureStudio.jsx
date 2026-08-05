@@ -6754,18 +6754,20 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                   })()}
                 </select>
                 <div style={{ width:1, height:22, background:"#e5e7eb", margin:"0 2px" }} />
-                <div style={{ display:"flex", alignItems:"center", gap:5 }} title="Text Color">
-                  <span style={{ fontSize:15, fontWeight:700, borderBottom:`3px solid ${(el.style?.color||"#374151").replace("colored","#374151")}`, lineHeight:1.1, paddingBottom:1 }}>A</span>
-                  <input type="color" style={{ width:26, height:26, border:"1px solid #e5e7eb", borderRadius:4, padding:1, cursor:"pointer" }}
-                    value={(el.style?.color||"#374151").replace("colored","#374151")} onChange={e=>onUpdateElStyle("color",e.target.value)} />
-                  {/* Hex text field alongside the swatch -- the swatch itself opens the
-                      OS's native color picker (the macOS system panel on a Mac), which
-                      is outside anything this app's code can control, including which
-                      tab it opens to. Typing/pasting a hex code here sidesteps that
-                      picker entirely, matching how background/border color already work
-                      elsewhere in the panel. */}
-                  <input type="text" style={{ width:70, height:26, border:"1px solid #e5e7eb", borderRadius:4, padding:"0 6px", fontSize:12, fontFamily:"inherit" }}
-                    value={(el.style?.color||"#374151").replace("colored","#374151")} onChange={e=>onUpdateElStyle("color",e.target.value)} />
+                <div style={{ display:"flex", gap:8, alignItems:"center" }} title="Text Color">
+                  {/* Same swatch-plus-hex-field layout as Background/Border Color
+                      elsewhere in the panel, instead of the small "A" swatch this used
+                      to be. The swatch still opens the OS's native color picker if
+                      clicked (the macOS system panel on a Mac, which nothing here can
+                      control or default to a hex tab) -- but now there's always a
+                      same-sized hex field right next to it to type/paste into instead. */}
+                  <div style={{ position:"relative", width:40, height:32, flexShrink:0 }}>
+                    <div style={{ width:40, height:32, borderRadius:"6px", border:"1px solid #e5e7eb", background: (el.style?.color||"#374151").replace("colored","#374151"), cursor:"pointer" }} />
+                    <input type="color" style={{ position:"absolute", inset:0, opacity:0, width:"100%", height:"100%", cursor:"pointer" }}
+                      value={(() => { const v = (el.style?.color||"#374151").replace("colored","#374151"); return /^#[0-9a-fA-F]{6}$/.test(v) ? v : "#374151"; })()}
+                      onChange={e=>onUpdateElStyle("color",e.target.value)} />
+                  </div>
+                  <input style={{ ...inputStyle, flex:1, width:90 }} value={(el.style?.color||"#374151").replace("colored","#374151")} onChange={e=>onUpdateElStyle("color",e.target.value)} />
                 </div>
                 <div style={{ width:1, height:22, background:"#e5e7eb", margin:"0 2px" }} />
                 {[
