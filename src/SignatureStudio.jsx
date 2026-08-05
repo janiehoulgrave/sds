@@ -6758,7 +6758,14 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
               style={{
                 border:`2px solid ${row.id===selectedRowId?"#0051d5":"transparent"}`,
                 borderTop: rowDragOverId===row.id ? "3px solid #0051d5" : undefined,
-                marginBottom: ri === sig.rows.length - 1 ? 0 : 4, position:"relative",
+                // No hardcoded inter-row gap here anymore -- there used to be
+                // a flat 4px marginBottom between every row regardless of
+                // settings, which wasn't tied to any control in the panel and
+                // didn't even match the exported HTML (which has zero gap
+                // between rows beyond their own padding). Row spacing is now
+                // controlled entirely by each row's own Padding Top/Bottom,
+                // same as what you see once copied out.
+                position:"relative",
                 // Mirror the exported HTML's row padding on the live canvas so the
                 // Padding Top / Padding Bottom controls in Row Settings actually
                 // change what you see. Export uses `rs.paddingTop || "8px"` (same
