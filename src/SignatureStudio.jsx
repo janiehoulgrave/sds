@@ -2060,7 +2060,7 @@ function renderElementInner(el, profile) {
   // margins, which is exactly the category of quirk (stripped/altered
   // properties, inconsistent collapsing) we kept running into with divs.
   const cellBottomPad = s.marginBottom || "0px";
-  const baseStyle = `font-family:${ff};font-size:${fSize};color:${fColor};font-weight:${fw};${s.textAlign?'text-align:'+s.textAlign+';':''}${s.textTransform?'text-transform:'+s.textTransform+';':''}${s.letterSpacing?'letter-spacing:'+s.letterSpacing+';':''}line-height:${lineHeightPx};${s.fontStyle?'font-style:'+s.fontStyle+';':''}padding:0 0 ${cellBottomPad} 0;mso-padding-alt:0 0 ${cellBottomPad} 0;${bgCss}${borderCss}`;
+  const baseStyle = `font-family:${ff};font-size:${fSize};color:${fColor};font-weight:${fw};${s.textAlign?'text-align:'+s.textAlign+';':''}${s.textTransform?'text-transform:'+s.textTransform+';':''}${s.letterSpacing?'letter-spacing:'+s.letterSpacing+';':''}line-height:${lineHeightPx};${s.fontStyle?'font-style:'+s.fontStyle+';':''}${s.textDecoration&&s.textDecoration!=='none'?'text-decoration:'+s.textDecoration+';':''}padding:0 0 ${cellBottomPad} 0;mso-padding-alt:0 0 ${cellBottomPad} 0;${bgCss}${borderCss}`;
   // Wraps a line of text in its own single-row, single-cell table -- the
   // email-safe equivalent of a <div>, but immune to the div-stacking quirks
   // Gmail's paste sanitizer applies inconsistently.
@@ -2072,7 +2072,7 @@ function renderElementInner(el, profile) {
     const content = interpolate(el.content || "", profile);
     const href = el.linkType ? buildLinkHref(el.linkType, el.linkUrl) : "";
     if (href) {
-      return textLine(`<a href="${href}" style="color:inherit;text-decoration:none;">${content}</a>`);
+      return textLine(`<a href="${href}" style="color:inherit;text-decoration:inherit;">${content}</a>`);
     }
     return textLine(content);
   }
@@ -5791,6 +5791,11 @@ function InlineEditableText({ el, profile, onChangeContent, onChangeProfileField
     // appeared correctly once the signature was copied out.
     textAlign: s.textAlign || "left",
     fontStyle: s.fontStyle || "normal",
+    // Missing here the same way padding/textAlign were before -- the U
+    // button was correctly saving textDecoration to the element's style, but
+    // nothing ever read it back into the actual rendered style, so it looked
+    // like the button just didn't work.
+    textDecoration: s.textDecoration || "none",
     // Spacing must use the SAME rule as the export renderer, which applies
     // `padding-bottom: s.marginBottom || "0px"` and zero top spacing. Default
     // is 0 so text lines sit flush; users add space via the Padding controls.
