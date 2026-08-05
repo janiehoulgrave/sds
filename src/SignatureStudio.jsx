@@ -2015,7 +2015,7 @@ function computeLineHeightPx(fontSize, lineHeight) {
   return `${Math.round(fSizeNum * 1.2)}px`;
 }
 
-function renderElementInner(el, profile) {
+function renderElementInner(el, profile, forCanvas) {
   const s = el.style || {};
   const fSize = s.fontSize || "11px";
   const fColor = s.color || "#000000";
@@ -2173,7 +2173,20 @@ function renderElementInner(el, profile) {
         // (circle stays round, not squished) once height goes to auto. The
         // width/height HTML attributes stay as-is for Outlook, which doesn't
         // understand max-width/aspect-ratio and needs the fallback.
-        return `<div style="display:block;line-height:0;font-size:0;mso-margin-top-alt:0;mso-margin-bottom-alt:0;"><img src="${src}" width="${wNum}" height="${hNum}" style="width:${w};max-width:100%;height:auto;box-sizing:border-box;aspect-ratio:${wNum}/${hNum};border-radius:${br};${bdr}object-fit:${s.objectFit||"cover"};display:block;" referrerpolicy="no-referrer" /></div>`;
+        //
+        // This responsive treatment is CANVAS-ONLY. Gmail's paste sanitizer
+        // doesn't reliably keep aspect-ratio -- once it's stripped, height:auto
+        // has nothing left to anchor to, so the photo fell back toward its
+        // natural/cropped shape instead of the intended box, and the column
+        // width (sized off the fixed photo width) no longer matched, widening
+        // the gutter next to it. The exported/copied signature keeps the old
+        // fixed width+height, which is what every email client (Gmail, Outlook,
+        // Apple Mail) reliably honors -- email signatures are a fixed-width
+        // context by nature, so there's no responsive benefit there anyway.
+        const photoResponsiveStyle = forCanvas
+          ? `max-width:100%;height:auto;aspect-ratio:${wNum}/${hNum};`
+          : `height:${h};`;
+        return `<div style="display:block;line-height:0;font-size:0;mso-margin-top-alt:0;mso-margin-bottom-alt:0;"><img src="${src}" width="${wNum}" height="${hNum}" style="width:${w};${photoResponsiveStyle}box-sizing:border-box;border-radius:${br};${bdr}object-fit:${s.objectFit||"cover"};display:block;" referrerpolicy="no-referrer" /></div>`;
       }
       case "logo": {
         const src = s.croppedSrc || profile.logoUrl || "";
@@ -2298,8 +2311,8 @@ function renderElementInner(el, profile) {
   return "";
 }
 
-function renderElementHTML(el, profile) {
-  const inner = renderElementInner(el, profile);
+function renderElementHTML(el, profile, forCanvas) {
+  const inner = renderElementInner(el, profile, forCanvas);
   const s = el.style || {};
   const align = s.align || null;
   const isImg = el.type === "image" || (el.type === "dynamic" && (el.subtype === "photo" || el.subtype === "logo" || el.subtype === "personalLogo"));
@@ -6923,7 +6936,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                                     '<span>Image missing<br/>re-upload to fix</span>';
                                   if (img.parentNode) img.parentNode.replaceChild(ph, img);
                                 }}
-                                dangerouslySetInnerHTML={{ __html: renderElementHTML(el, profile) }}
+                                dangerouslySetInnerHTML={{ __html: renderElementHTML(el, profile, true) }}
                               />
                             )}
                           </div>
