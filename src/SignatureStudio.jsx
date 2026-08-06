@@ -2053,6 +2053,10 @@ function renderElementInner(el, profile, forCanvas) {
   // photos, badges, buttons, dividers) rather than just text-like ones.
   const bgCss = s.backgroundColor ? `background:${s.backgroundColor};` : "";
   const borderCss = s.borderWidth ? `border:${s.borderWidth} ${s.borderStyle||"solid"} ${s.borderColor||"#e5e7eb"};` : "";
+  // Corner Radius was captured from the panel into s.borderRadius but never
+  // actually made it into the rendered style at all -- the field looked like
+  // it did nothing because, for text-like elements, it genuinely did nothing.
+  const radiusCss = s.borderRadius ? `border-radius:${s.borderRadius};` : "";
   const lineHeightPx = computeLineHeightPx(fSize, s.lineHeight);
   // Spacing between lines now lives entirely in td padding-bottom, not div
   // margin. This is the standard technique professional signature tools
@@ -2061,7 +2065,7 @@ function renderElementInner(el, profile, forCanvas) {
   // margins, which is exactly the category of quirk (stripped/altered
   // properties, inconsistent collapsing) we kept running into with divs.
   const cellBottomPad = s.marginBottom || "0px";
-  const baseStyle = `font-family:${ff};font-size:${fSize};color:${fColor};font-weight:${fw};${s.textAlign?'text-align:'+s.textAlign+';':''}${s.textTransform?'text-transform:'+s.textTransform+';':''}${s.letterSpacing?'letter-spacing:'+s.letterSpacing+';':''}line-height:${lineHeightPx};${s.fontStyle?'font-style:'+s.fontStyle+';':''}${s.textDecoration&&s.textDecoration!=='none'?'text-decoration:'+s.textDecoration+';':''}padding:0 0 ${cellBottomPad} 0;mso-padding-alt:0 0 ${cellBottomPad} 0;${bgCss}${borderCss}`;
+  const baseStyle = `font-family:${ff};font-size:${fSize};color:${fColor};font-weight:${fw};${s.textAlign?'text-align:'+s.textAlign+';':''}${s.textTransform?'text-transform:'+s.textTransform+';':''}${s.letterSpacing?'letter-spacing:'+s.letterSpacing+';':''}line-height:${lineHeightPx};${s.fontStyle?'font-style:'+s.fontStyle+';':''}${s.textDecoration&&s.textDecoration!=='none'?'text-decoration:'+s.textDecoration+';':''}padding:0 0 ${cellBottomPad} 0;mso-padding-alt:0 0 ${cellBottomPad} 0;${bgCss}${borderCss}${radiusCss}`;
   // Wraps a line of text in its own single-row, single-cell table -- the
   // email-safe equivalent of a <div>, but immune to the div-stacking quirks
   // Gmail's paste sanitizer applies inconsistently.
@@ -5165,9 +5169,14 @@ function BorderSection({ label, s, propLabel, inputStyle, onUpdate, defaultOpen 
             <select style={{ ...inputStyle, fontSize:15 }} value={s.borderStyle||"solid"} onChange={e=>onUpdate("borderStyle",e.target.value)}>
               <option value="solid">Solid</option><option value="dashed">Dashed</option><option value="dotted">Dotted</option>
             </select>
-            <input style={{ ...inputStyle, fontSize:15 }} placeholder="Width (e.g. 1px)" value={s.borderWidth||""} onChange={e=>onUpdate("borderWidth",e.target.value)}/>
+            {/* DimensionInput (not a plain text field) so a bare number like "1"
+                gets normalized to "1px" automatically -- border-width with no
+                unit is invalid CSS, and browsers silently drop the entire
+                border declaration when it is, which is why this looked like
+                the whole control just didn't work. */}
+            <DimensionInput style={{ ...inputStyle, fontSize:15 }} placeholder="0px" value={s.borderWidth||""} onChange={v=>onUpdate("borderWidth",v)}/>
           </div>
-          <input style={{ ...inputStyle, fontSize:15 }} placeholder="Corner Radius (e.g. 6px)" value={s.borderRadius||""} onChange={e=>onUpdate("borderRadius",e.target.value)}/>
+          <DimensionInput style={{ ...inputStyle, fontSize:15 }} placeholder="Corner Radius (e.g. 6px)" value={s.borderRadius||""} onChange={v=>onUpdate("borderRadius",v)}/>
         </div>
       )}
     </div>
