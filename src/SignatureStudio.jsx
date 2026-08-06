@@ -29,6 +29,7 @@ const ALLOWED_EMAILS = [
   "ariel.mantilla@compass.com",
   "natalie.robinson@compass.com",
   "britany.scruton@compass.com",
+  "ashley.vogel@compass.com",
   "ameliaharris@compass.com",
 ];
 function isEmailAllowed(email) {
