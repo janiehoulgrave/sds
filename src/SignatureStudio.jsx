@@ -2612,7 +2612,14 @@ function PublicSharePreview({ shortId }) {
 
   return (
     <div style={shellStyle}>
-      <div style={{ width:"100%", maxWidth:640, background:"#fff", border:"1px solid #d1d5db", borderRadius:12, padding:28 }}>
+      {/* 640 used to be tighter than the signature actually needs: subtract
+          this card's own padding (28px each side) plus the inner preview
+          box's padding+border (16px each side + 1px border) from 640 and
+          there's only ~550px left for content that's authored at a fixed
+          600px wide -- so it was clipping/scrolling internally regardless of
+          how wide the browser window itself was. 720 leaves enough room for
+          the full 600px design plus all that padding with breathing room. */}
+      <div style={{ width:"100%", maxWidth:720, background:"#fff", border:"1px solid #d1d5db", borderRadius:12, padding:28 }}>
         <div style={{ fontSize:20, fontWeight:800, color:"#111827", marginBottom:4 }}>Your email signature is ready</div>
         <div style={{ fontSize:15, color:"#6b7280", marginBottom:20, lineHeight:1.5 }}>
           Click the button below, then paste it into Gmail (Settings → General → Signature) or Outlook.
