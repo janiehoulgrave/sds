@@ -7,21 +7,6 @@ const ALLOWED_DOMAIN = "compass.com";
 const INACTIVITY_LIMIT_MS = 24 * 60 * 60 * 1000; // 24 hours
 const LAST_ACTIVITY_KEY = "ss_last_activity";
 
-// Wraps the whole app. Nothing inside renders until someone is signed in
-// AND their email ends in @compass.com -- Firebase Auth confirms who they
-// are, this domain check confirms they're allowed in. If someone signs in
-// with a non-Compass Google account, they're immediately signed back out
-// and shown an error rather than silently let through.
-//
-// Session behavior: Firebase's default persistence already keeps someone
-// signed in across tabs and page reloads indefinitely on its own -- no code
-// needed for that part. What Firebase does NOT do on its own is expire a
-// session after a period of inactivity, so that's tracked here explicitly:
-// every real user interaction (click/keydown/scroll) stamps a timestamp in
-// localStorage (shared across tabs, since it's the same key). On load, and
-// periodically while the tab is open, if more time than the limit has
-// passed since that timestamp, the user is signed out -- even though
-// Firebase's own session would otherwise have stayed valid forever.
 export default function AuthGate({ children }) {
   const [user, setUser] = useState(null);
   const [checking, setChecking] = useState(true);
@@ -41,8 +26,6 @@ export default function AuthGate({ children }) {
       if (u) {
         const last = getLastActivity();
         if (last && Date.now() - last > INACTIVITY_LIMIT_MS) {
-          // Stale session -- sign out rather than silently letting it
-          // through just because Firebase's own token is still valid.
           signedOutForInactivity.current = true;
           signOut(auth);
           return;
@@ -55,15 +38,11 @@ export default function AuthGate({ children }) {
     return unsubscribe;
   }, []);
 
-  // Track real activity while signed in, and periodically re-check in case
-  // the tab is left open past the limit without a reload.
   useEffect(() => {
     if (!user) return;
     const events = ["click", "keydown", "scroll", "mousemove"];
     let lastMark = 0;
     function onActivity() {
-      // Throttle localStorage writes -- no need to write on every single
-      // mousemove event, once every 30s of active use is plenty.
       const now = Date.now();
       if (now - lastMark > 30000) { markActivity(); lastMark = now; }
     }
@@ -75,7 +54,7 @@ export default function AuthGate({ children }) {
         signedOutForInactivity.current = true;
         signOut(auth);
       }
-    }, 60000); // check once a minute
+    }, 60000);
 
     return () => {
       events.forEach(e => window.removeEventListener(e, onActivity));
@@ -95,13 +74,26 @@ export default function AuthGate({ children }) {
         markActivity();
       }
     } catch (e) {
-      // Popup closed by user, network issue, etc. -- not worth distinguishing
-      // for the user, just let them try again.
       setError("Sign-in didn't complete. Please try again.");
     }
   }
 
   const isAllowed = user && (user.email || "").endsWith(`@${ALLOWED_DOMAIN}`);
+
+  // Public share-link bypass. A #s=<id> link is meant to be openable by
+  // anyone the link was sent to -- an agent, not a Compass staff member --
+  // with no sign-in required at all. SignatureStudio.jsx has its own
+  // PublicSharePreview component that handles this hash directly and is
+  // entirely self-contained (including its own optional "Make a Copy to My
+  // Account" sign-in flow for whoever wants one), so this just needs to get
+  // out of the way and render children immediately rather than making the
+  // visitor pass the sign-in wall first. Placed after the "checking" state
+  // resolves isn't necessary here since this doesn't depend on auth at all
+  // -- it's checked before the checking/isAllowed gates below on purpose,
+  // so someone doesn't even see the "Loading..." screen first.
+  if (typeof window !== "undefined" && window.location.hash.startsWith("#s=")) {
+    return children;
+  }
 
   if (checking) {
     return (
@@ -115,10 +107,6 @@ export default function AuthGate({ children }) {
     return (
       <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100vh", fontFamily:"sans-serif", padding:20, background:"#161616" }}>
         <div style={{ background:"#fff", borderRadius:20, overflow:"hidden", maxWidth:480, width:"100%", boxShadow:"0 25px 70px rgba(0,0,0,0.4)" }}>
-
-          {/* Hero strip -- same dark-into-photo treatment as the actual
-              Dashboard banner someone lands on right after signing in, just
-              sized to fit inside a compact card instead of the full page. */}
           <div style={{ position:"relative", height:210, background:"#161616", display:"flex", alignItems:"flex-end", overflow:"hidden" }}>
             <img src={HERO_PHOTO} alt="" aria-hidden="true"
               style={{ position:"absolute", top:0, right:0, width:"55%", height:"100%", objectFit:"cover", objectPosition:"center center", pointerEvents:"none" }} />
@@ -129,13 +117,10 @@ export default function AuthGate({ children }) {
               </h1>
             </div>
           </div>
-
-          {/* Sign-in action */}
           <div style={{ padding:"34px 40px 40px", textAlign:"center" }}>
             <div style={{ fontSize:15, color:"#6b7280", marginBottom:26, lineHeight:1.55 }}>
               Sign in with your Compass Google account to create and manage your professional email signature.
             </div>
-
             {signedOutForInactivity.current && (
               <div style={{ fontSize:13, color:"#374151", background:"#f3f4f6", padding:"10px 14px", borderRadius:8, marginBottom:14, textAlign:"left" }}>
                 You were signed out after a period of inactivity. Please sign in again.
@@ -146,7 +131,6 @@ export default function AuthGate({ children }) {
                 {error}
               </div>
             )}
-
             <button onClick={handleSignIn}
               style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:10, width:"100%", padding:"13px 20px", fontSize:15, fontWeight:600, borderRadius:10, border:"1px solid #d1d5db", background:"#fff", cursor:"pointer", boxShadow:"0 1px 2px rgba(0,0,0,0.05)", fontFamily:"inherit", transition:"background 0.15s" }}
               onMouseEnter={e=>e.currentTarget.style.background="#f9fafb"}
@@ -159,7 +143,6 @@ export default function AuthGate({ children }) {
               </svg>
               Sign in with Google
             </button>
-
             <div style={{ fontSize:13, color:"#9ca3af", marginTop:20 }}>
               For Compass agents only &middot; @compass.com accounts
             </div>
