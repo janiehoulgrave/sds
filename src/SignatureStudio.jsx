@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo, Fragment } from "react";
 import { collection, onSnapshot, addDoc, serverTimestamp, doc, getDoc, setDoc, getDocs, deleteDoc } from "firebase/firestore";
+import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 import { db, auth } from "./firebase.js";
 
 // The single account allowed to use admin authoring controls and to publish
@@ -2447,6 +2448,158 @@ function SignatureRenderer({ signature, profile }) {
 }
 
 // --- Main App ---
+// Public, no-login-required preview for a share link. This is the actual fix
+// for the "how do agents get the finished signature" problem -- the old flow
+// required the recipient to sign in AND be on the staff allowlist just to
+// view a shared design, which locked out every actual agent (they aren't
+// staff). This component bypasses all of that: it's mounted before any of
+// App's Firebase-auth-gated logic runs, fetches the shared doc directly
+// (Firestore rules now allow a public, unauthenticated read for any doc in
+// shared/ other than the admin's publishedTemplates doc), and renders just
+// the signature plus a single Copy to Clipboard button. Nothing here ever
+// touches an email body, so there's no Gmail cid: round-trip to break the
+// images -- the agent copies straight from this page into their own Gmail
+// Settings.
+function PublicSharePreview({ shortId }) {
+  const [sig, setSig] = useState(null);
+  const [notFound, setNotFound] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [savedName, setSavedName] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const snap = await getDoc(doc(db, "shared", shortId));
+        if (cancelled) return;
+        if (!snap.exists()) { setNotFound(true); return; }
+        setSig(snap.data());
+      } catch (e) {
+        console.warn("Could not load shared signature:", e);
+        if (!cancelled) setNotFound(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [shortId]);
+
+  async function copy() {
+    if (!sig) return;
+    // Auto-crops any photo to match its box before copying -- same reasoning
+    // as the regular editor's copy flow (see prepareSigForExport above).
+    const exportSig = await prepareSigForExport(sig, DEFAULT_PROFILE);
+    const html = generateSigHTML(exportSig, DEFAULT_PROFILE);
+    if (tryExecCommandCopy(html, false)) {
+      setCopied(true); setCopyFailed(false); setTimeout(() => setCopied(false), 2500);
+      return;
+    }
+    try {
+      if (navigator.clipboard && window.ClipboardItem) {
+        const blob = new Blob([html], { type: "text/html" });
+        await navigator.clipboard.write([new ClipboardItem({ "text/html": blob })]);
+      } else if (navigator.clipboard) {
+        await navigator.clipboard.writeText(html);
+      } else {
+        throw new Error("No clipboard method available");
+      }
+      setCopied(true); setCopyFailed(false); setTimeout(() => setCopied(false), 2500);
+    } catch (err) {
+      setCopyFailed(true); setTimeout(() => setCopyFailed(false), 4000);
+    }
+  }
+
+  // Signs the visitor in (if needed) with their own Google/Compass account,
+  // then saves this shared design as a signature under their own account so
+  // they can come back and edit it later. Deliberately self-contained and
+  // doesn't navigate anywhere else in the app afterward -- this page has no
+  // way to know whether whatever gates the rest of the app (there's a
+  // reference to something called AuthGate elsewhere that isn't defined in
+  // this file, so it likely lives in a separate wrapper) would actually let
+  // this visitor through, since "make a copy" is meant for any Compass
+  // person, not just staff on the internal tool's allowlist. So instead of
+  // redirecting into the editor, it just confirms success right here.
+  async function makeCopy() {
+    if (!sig) return;
+    setSaveError("");
+    setSaving(true);
+    try {
+      let user = auth.currentUser;
+      if (!user) {
+        const provider = new GoogleAuthProvider();
+        provider.setCustomParameters({ hd: "compass.com" });
+        const result = await signInWithPopup(auth, provider);
+        user = result.user;
+      }
+      const email = (user.email || "").toLowerCase();
+      if (!user.emailVerified || !/@compass\.com$/.test(email)) {
+        setSaveError("Please sign in with your @compass.com account.");
+        setSaving(false);
+        return;
+      }
+      const name = sig.name ? sig.name + " (shared)" : "Shared Signature";
+      const newId = "sig-" + Math.random().toString(36).slice(2);
+      const imported = { ...sig, id: newId, name, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      await setDoc(doc(collection(db, "users", user.uid, "signatures"), newId), imported);
+      setSavedName(name);
+    } catch (e) {
+      console.warn("Could not save shared signature:", e);
+      setSaveError(e?.code === "auth/popup-closed-by-user" ? "" : "Something went wrong saving this -- please try again.");
+    }
+    setSaving(false);
+  }
+
+  const shellStyle = { display:"flex", flexDirection:"column", alignItems:"center", minHeight:"100vh", padding:"48px 20px", background:"#E8E8E8", fontFamily:"'Compass Sans','DM Sans','Hanken Grotesk',sans-serif" };
+
+  if (notFound) {
+    return (
+      <div style={shellStyle}>
+        <div style={{ fontSize:20, fontWeight:800, color:"#111827", marginBottom:8 }}>This link isn't valid</div>
+        <div style={{ fontSize:15, color:"#6b7280", maxWidth:420, textAlign:"center" }}>
+          It may have been removed, or the link was copied incorrectly. Ask whoever sent this to you for a fresh link.
+        </div>
+      </div>
+    );
+  }
+
+  if (!sig) {
+    return (
+      <div style={shellStyle}>
+        <div style={{ color:"#6b7280", fontSize:15 }}>Loading your signature…</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={shellStyle}>
+      <div style={{ width:"100%", maxWidth:640, background:"#fff", border:"1px solid #d1d5db", borderRadius:12, padding:28 }}>
+        <div style={{ fontSize:20, fontWeight:800, color:"#111827", marginBottom:4 }}>Your email signature is ready</div>
+        <div style={{ fontSize:15, color:"#6b7280", marginBottom:20, lineHeight:1.5 }}>
+          Click the button below, then paste it into Gmail (Settings → General → Signature) or Outlook.
+        </div>
+        <button onClick={copy} style={{ width:"100%", background:"#0051d5", border:"none", borderRadius:8, padding:"12px 18px", fontSize:15, fontWeight:700, color:"#fff", cursor:"pointer", fontFamily:"inherit", marginBottom:10 }}>
+          {copied ? "Copied! Now paste it into Gmail/Outlook" : copyFailed ? "Couldn't copy -- try selecting the preview below and copying manually" : "Copy Signature to Clipboard"}
+        </button>
+        {savedName ? (
+          <div style={{ width:"100%", textAlign:"center", background:"#ecfdf5", border:"1px solid #a7f3d0", borderRadius:8, padding:"10px 14px", fontSize:14, color:"#065f46", fontWeight:600, marginBottom:20 }}>
+            Saved as "{savedName}" -- sign in at sds.janienation.com anytime to find and edit it.
+          </div>
+        ) : (
+          <button onClick={makeCopy} disabled={saving} style={{ width:"100%", background:"#fff", border:"1.5px solid #d1d5db", borderRadius:8, padding:"11px 18px", fontSize:15, fontWeight:700, color:"#374151", cursor: saving ? "default" : "pointer", fontFamily:"inherit", marginBottom:8, opacity: saving ? 0.6 : 1 }}>
+            {saving ? "Saving…" : "Make a Copy to My Account"}
+          </button>
+        )}
+        {saveError && <div style={{ color:"#b91c1c", fontSize:14, marginBottom:12, textAlign:"center" }}>{saveError}</div>}
+        {!savedName && <div style={{ fontSize:13, color:"#9ca3af", marginBottom:20, textAlign:"center" }}>Signs you in with your Compass Google account if you aren't already.</div>}
+        <div style={{ border:"1px solid #e5e7eb", borderRadius:8, padding:16, overflow:"auto" }}>
+          <SignatureRenderer signature={sig} profile={DEFAULT_PROFILE} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
 
   const [screen, setScreen] = useState("home");
@@ -2692,21 +2845,20 @@ export default function App() {
   // before the Firestore fetch resolves, and the later fetch would overwrite
   // the just-imported signature with data that doesn't include it yet.
   //
-  // Two link formats are supported:
-  //   #s=<shortId>   -- current format. The full signature JSON lives in
-  //                      Firestore at shared/<shortId>; the link only carries
-  //                      the short id, which keeps URLs short.
-  //   #share=<base64> -- legacy format from before the Firestore-backed
-  //                       short links. The whole signature JSON was
-  //                       base64-encoded directly into the URL, which is why
-  //                       old links could get astronomically long. Kept here
-  //                       so links people already shared/saved still work.
+  // Only the legacy #share=<base64> format is handled here now. The current
+  // #s=<shortId> format is handled entirely by PublicSharePreview above,
+  // mounted before this component's gates even run -- that's what makes it
+  // work without requiring sign-in. This effect used to also handle #s=
+  // links (importing them as an editable copy for signed-in staff), but that
+  // duplicated/raced against PublicSharePreview: this effect would clear the
+  // hash out from under it mid-render. #share= links are a different, older
+  // format that PublicSharePreview doesn't intercept, so they still need
+  // handling here.
   useEffect(() => {
     if (accountLoading) return;
     const hash = window.location.hash;
-    const isShortLink = hash.startsWith("#s=");
     const isLegacyLink = hash.startsWith("#share=");
-    if (!isShortLink && !isLegacyLink) return;
+    if (!isLegacyLink) return;
 
     function importShared(shared) {
       if (!shared || !shared.rows) return;
@@ -2731,24 +2883,6 @@ export default function App() {
       // theirs.
       openEditor(already || imported);
       showToast("Shared design imported! It's yours to edit now.");
-    }
-
-    if (isShortLink) {
-      const shortId = hash.slice(3);
-      (async () => {
-        try {
-          const snap = await getDoc(doc(db, "shared", shortId));
-          if (!snap.exists()) {
-            window.history.replaceState(null, "", window.location.pathname);
-            showToast("That share link has expired or is invalid.");
-            return;
-          }
-          importShared(snap.data());
-        } catch(e) {
-          console.warn("Could not import shared design:", e);
-        }
-      })();
-      return;
     }
 
     // Legacy base64-in-URL format
@@ -3750,6 +3884,17 @@ export default function App() {
     { id:"editor", icon:"hardware", label:"Build" },
     { id:"media", icon:"perm_media", label:"Media" },
   ];
+
+  // Public share-link preview -- checked before the accountLoading/allowlist
+  // gates below on purpose. An agent opening a share link isn't staff and
+  // isn't signed in, so making them wait through Firebase auth resolution or
+  // hit the "Not authorized" screen would defeat the entire point of this
+  // route. window.location.hash doesn't change out from under a mounted
+  // page in normal use, so checking it here (after all hooks above have
+  // already run, same as the other early-return gates just below) is safe.
+  if (typeof window !== "undefined" && window.location.hash.startsWith("#s=")) {
+    return <PublicSharePreview shortId={window.location.hash.slice(3)} />;
+  }
 
   if (accountLoading) {
     return (
