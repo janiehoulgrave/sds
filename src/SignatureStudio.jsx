@@ -2462,6 +2462,7 @@ function SignatureRenderer({ signature, profile }) {
 // Settings.
 function PublicSharePreview({ shortId }) {
   const [sig, setSig] = useState(null);
+  const [sharedProfile, setSharedProfile] = useState(DEFAULT_PROFILE);
   const [notFound, setNotFound] = useState(false);
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
@@ -2476,7 +2477,17 @@ function PublicSharePreview({ shortId }) {
         const snap = await getDoc(doc(db, "shared", shortId));
         if (cancelled) return;
         if (!snap.exists()) { setNotFound(true); return; }
-        setSig(snap.data());
+        const data = snap.data();
+        // New links save {sig, profile}. Older links (from before this was
+        // fixed) saved the sig object directly at the top level -- detect
+        // that by checking for `rows`, which only a sig object has.
+        if (data && data.rows) {
+          setSig(data);
+          setSharedProfile(DEFAULT_PROFILE);
+        } else {
+          setSig(data.sig || null);
+          setSharedProfile(data.profile || DEFAULT_PROFILE);
+        }
       } catch (e) {
         console.warn("Could not load shared signature:", e);
         if (!cancelled) setNotFound(true);
@@ -2489,8 +2500,8 @@ function PublicSharePreview({ shortId }) {
     if (!sig) return;
     // Auto-crops any photo to match its box before copying -- same reasoning
     // as the regular editor's copy flow (see prepareSigForExport above).
-    const exportSig = await prepareSigForExport(sig, DEFAULT_PROFILE);
-    const html = generateSigHTML(exportSig, DEFAULT_PROFILE);
+    const exportSig = await prepareSigForExport(sig, sharedProfile);
+    const html = generateSigHTML(exportSig, sharedProfile);
     if (tryExecCommandCopy(html, false)) {
       setCopied(true); setCopyFailed(false); setTimeout(() => setCopied(false), 2500);
       return;
@@ -2593,7 +2604,7 @@ function PublicSharePreview({ shortId }) {
         {saveError && <div style={{ color:"#b91c1c", fontSize:14, marginBottom:12, textAlign:"center" }}>{saveError}</div>}
         {!savedName && <div style={{ fontSize:13, color:"#9ca3af", marginBottom:20, textAlign:"center" }}>Signs you in with your Compass Google account if you aren't already.</div>}
         <div style={{ border:"1px solid #e5e7eb", borderRadius:8, padding:16, overflow:"auto" }}>
-          <SignatureRenderer signature={sig} profile={DEFAULT_PROFILE} />
+          <SignatureRenderer signature={sig} profile={sharedProfile} />
         </div>
       </div>
     </div>
@@ -3345,7 +3356,15 @@ export default function App() {
     if (!sig) return null;
     try {
       const shortId = uuid();
-      await setDoc(doc(db, "shared", shortId), sig);
+      // Smart Fields (Name, Photo, Phone, Address, etc.) render from whatever
+      // `profile` is currently active on this account -- when staff builds a
+      // design "for" an agent, that agent's info lives in THIS profile
+      // object, not baked into the signature layout itself. The share link
+      // used to only save `sig`, so the recipient's preview had nothing to
+      // fill those fields with and showed blank placeholders. Snapshotting
+      // profile alongside sig here is what actually carries the finished,
+      // agent-specific design across to whoever opens the link.
+      await setDoc(doc(db, "shared", shortId), { sig, profile, createdAt: new Date().toISOString() });
       return window.location.origin + window.location.pathname + "#s=" + shortId;
     } catch(e) {
       console.warn("Could not create share link:", e);
