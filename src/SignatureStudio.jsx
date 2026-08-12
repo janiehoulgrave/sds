@@ -2465,10 +2465,19 @@ function PublicSharePreview({ shortId }) {
   const [sharedProfile, setSharedProfile] = useState(DEFAULT_PROFILE);
   const [notFound, setNotFound] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [copiedHtml, setCopiedHtml] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [savedName, setSavedName] = useState("");
+
+  useEffect(() => {
+    function handler(e) { if (dropdownRef.current && !dropdownRef.current.contains(e.target)) setDropdownOpen(false); }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -2516,6 +2525,25 @@ function PublicSharePreview({ shortId }) {
         throw new Error("No clipboard method available");
       }
       setCopied(true); setCopyFailed(false); setTimeout(() => setCopied(false), 2500);
+    } catch (err) {
+      setCopyFailed(true); setTimeout(() => setCopyFailed(false), 4000);
+    }
+  }
+
+  // Copies the raw HTML source as plain text, for anyone pasting into a
+  // template system or code editor rather than directly into an email
+  // client -- same purpose as "Copy HTML" in the main editor's dropdown.
+  async function copyHtmlSource() {
+    if (!sig) return;
+    const exportSig = await prepareSigForExport(sig, sharedProfile);
+    const html = generateSigHTML(exportSig, sharedProfile);
+    if (tryExecCommandCopy(html, true)) {
+      setCopiedHtml(true); setCopyFailed(false); setTimeout(() => setCopiedHtml(false), 2500);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(html);
+      setCopiedHtml(true); setCopyFailed(false); setTimeout(() => setCopiedHtml(false), 2500);
     } catch (err) {
       setCopyFailed(true); setTimeout(() => setCopyFailed(false), 4000);
     }
@@ -2589,20 +2617,45 @@ function PublicSharePreview({ shortId }) {
         <div style={{ fontSize:15, color:"#6b7280", marginBottom:20, lineHeight:1.5 }}>
           Click the button below, then paste it into Gmail (Settings → General → Signature) or Outlook.
         </div>
-        <button onClick={copy} style={{ width:"100%", background:"#0051d5", border:"none", borderRadius:8, padding:"12px 18px", fontSize:15, fontWeight:700, color:"#fff", cursor:"pointer", fontFamily:"inherit", marginBottom:10 }}>
-          {copied ? "Copied! Now paste it into Gmail/Outlook" : copyFailed ? "Couldn't copy -- try selecting the preview below and copying manually" : "Copy Signature to Clipboard"}
-        </button>
-        {savedName ? (
+        <div ref={dropdownRef} style={{ position:"relative", marginBottom:20 }}>
+          <div style={{ display:"flex", borderRadius:8, overflow:"hidden" }}>
+            <button onClick={copy} style={{ flex:1, background:"#0051d5", border:"none", padding:"12px 18px", fontSize:15, fontWeight:700, color: copied ? "#a5f3fc" : "#fff", cursor:"pointer", fontFamily:"inherit" }}>
+              {copied ? "Copied! Now paste it into Gmail/Outlook" : copyFailed ? "Couldn't copy -- try selecting the preview below" : "Copy Signature to Clipboard"}
+            </button>
+            <button onClick={()=>setDropdownOpen(o=>!o)} style={{ background:"#0041b5", border:"none", borderLeft:"1px solid rgba(255,255,255,0.2)", padding:"0 16px", cursor:"pointer", display:"flex", alignItems:"center" }}>
+              <Icon name="expand_more" size={18} color="#fff" />
+            </button>
+          </div>
+          {dropdownOpen && (
+            <div style={{ position:"absolute", top:"100%", right:0, marginTop:4, background:"#fff", border:"1px solid #e5e7eb", borderRadius:8, boxShadow:"0 4px 16px rgba(0,0,0,0.12)", zIndex:50, minWidth:260, overflow:"hidden" }}>
+              <button onClick={()=>{ copy(); setDropdownOpen(false); }}
+                style={{ width:"100%", padding:"10px 14px", border:"none", background:"transparent", cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center", gap:10, fontSize:15, color:"#111827", textAlign:"left" }}
+                onMouseEnter={e=>e.currentTarget.style.background="#f3f4f6"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                <Icon name="content_paste" size={16} color="#0051d5" />
+                <div><div style={{ fontWeight:600 }}>Copy to Clipboard</div><div style={{ fontSize:15, color:"#6b7280" }}>Paste directly into Gmail or Outlook</div></div>
+              </button>
+              <button onClick={()=>{ copyHtmlSource(); setDropdownOpen(false); }}
+                style={{ width:"100%", padding:"10px 14px", border:"none", background:"transparent", cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center", gap:10, fontSize:15, color:"#111827", textAlign:"left" }}
+                onMouseEnter={e=>e.currentTarget.style.background="#f3f4f6"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                <Icon name="code" size={16} color="#374151" />
+                <div><div style={{ fontWeight:600 }}>{copiedHtml ? "Copied!" : "Copy HTML"}</div><div style={{ fontSize:15, color:"#6b7280" }}>For developers or custom email tools</div></div>
+              </button>
+              <div style={{ borderTop:"1px solid #f3f4f6" }} />
+              <button onClick={()=>{ makeCopy(); setDropdownOpen(false); }} disabled={saving || !!savedName}
+                style={{ width:"100%", padding:"10px 14px", border:"none", background:"transparent", cursor: (saving||savedName) ? "default" : "pointer", fontFamily:"inherit", display:"flex", alignItems:"center", gap:10, fontSize:15, color:"#111827", textAlign:"left", opacity: (saving||savedName) ? 0.5 : 1 }}
+                onMouseEnter={e=>{ if (!saving && !savedName) e.currentTarget.style.background="#f3f4f6"; }} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                <Icon name="person_add" size={16} color="#374151" />
+                <div><div style={{ fontWeight:600 }}>{savedName ? "Saved to your account" : saving ? "Saving…" : "Make a Copy to My Account"}</div><div style={{ fontSize:15, color:"#6b7280" }}>Signs you in with your Compass Google account if needed</div></div>
+              </button>
+            </div>
+          )}
+        </div>
+        {savedName && (
           <div style={{ width:"100%", textAlign:"center", background:"#ecfdf5", border:"1px solid #a7f3d0", borderRadius:8, padding:"10px 14px", fontSize:14, color:"#065f46", fontWeight:600, marginBottom:20 }}>
             Saved as "{savedName}" -- sign in at sds.janienation.com anytime to find and edit it.
           </div>
-        ) : (
-          <button onClick={makeCopy} disabled={saving} style={{ width:"100%", background:"#fff", border:"1.5px solid #d1d5db", borderRadius:8, padding:"11px 18px", fontSize:15, fontWeight:700, color:"#374151", cursor: saving ? "default" : "pointer", fontFamily:"inherit", marginBottom:8, opacity: saving ? 0.6 : 1 }}>
-            {saving ? "Saving…" : "Make a Copy to My Account"}
-          </button>
         )}
         {saveError && <div style={{ color:"#b91c1c", fontSize:14, marginBottom:12, textAlign:"center" }}>{saveError}</div>}
-        {!savedName && <div style={{ fontSize:13, color:"#9ca3af", marginBottom:20, textAlign:"center" }}>Signs you in with your Compass Google account if you aren't already.</div>}
         <div style={{ border:"1px solid #e5e7eb", borderRadius:8, padding:16, overflow:"auto" }}>
           <SignatureRenderer signature={sig} profile={sharedProfile} />
         </div>
