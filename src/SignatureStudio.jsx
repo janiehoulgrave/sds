@@ -2249,6 +2249,7 @@ function renderElementInner(el, profile, forCanvas) {
         const socialStyle = s.socialStyle || "colored";
         const iconSize = parseInt(s.iconSize) || 16;
         const iconGap = parseInt(s.socialGap) || 5;
+        const layout = s.socialLayout === "vertical" ? "vertical" : "horizontal";
         const svgSz = Math.round(iconSize * 0.6);
         const hidden = s.hiddenSocials ? s.hiddenSocials.split(",") : [];
 
@@ -2295,6 +2296,16 @@ function renderElementInner(el, profile, forCanvas) {
         const visibleSocials = allSocials.filter(soc => soc.url && soc.url.trim() && !hidden.includes(soc.key));
         if (visibleSocials.length === 0) return `<div style="color:#9ca3af;font-size:11px;font-family:sans-serif;">No social links set in profile</div>`;
 
+        // Horizontal lays icons out left-to-right with margin-right between
+        // them (the original/default layout). Vertical stacks them
+        // top-to-bottom instead, using margin-bottom for the gap and
+        // display:block so each one drops to its own line rather than
+        // wrapping inline. Both share iconGap (the same Icon Spacing
+        // control in the panel governs whichever direction is active).
+        const itemStyle = layout === "vertical"
+          ? `display:block;width:${iconSize}px;height:${iconSize}px;line-height:0;font-size:0;overflow:hidden;text-decoration:none;margin-bottom:${iconGap}px;`
+          : `display:inline-block;width:${iconSize}px;height:${iconSize}px;line-height:0;font-size:0;overflow:hidden;text-decoration:none;margin-right:${iconGap}px;`;
+
         const btns = visibleSocials.map(soc => {
           const customSrc = s[`customIcon_${soc.key}`];
           const src = customSrc || (
@@ -2302,12 +2313,12 @@ function renderElementInner(el, profile, forCanvas) {
             socialStyle === "black"   ? (blackImgs[soc.key]   || blackImgs.website)   :
                                         (whiteImgs[soc.key]   || whiteImgs.website)
           );
-          return `<a href="${ensureHref(soc.url)}" target="_blank" style="display:inline-block;width:${iconSize}px;height:${iconSize}px;line-height:0;font-size:0;overflow:hidden;text-decoration:none;margin-right:${iconGap}px;"><img src="${src}" width="${iconSize}" height="${iconSize}" style="display:block;vertical-align:bottom;border:none;" /></a>`;
+          return `<a href="${ensureHref(soc.url)}" target="_blank" style="${itemStyle}"><img src="${src}" width="${iconSize}" height="${iconSize}" style="display:block;vertical-align:bottom;border:none;" /></a>`;
         }).join("");
         const customLinks = (() => { try { return JSON.parse(s.customLinks || "[]"); } catch { return []; } })();
         const customBtns = customLinks.filter(l=>l.url&&l.url.trim()).map(l => {
-          if (l.iconUrl) return `<a href="${ensureHref(l.url)}" target="_blank" title="${l.label||""}" style="display:inline-block;width:${iconSize}px;height:${iconSize}px;line-height:0;font-size:0;overflow:hidden;text-decoration:none;margin-right:${iconGap}px;"><img src="${l.iconUrl}" width="${iconSize}" height="${iconSize}" style="display:block;vertical-align:bottom;border:none;" /></a>`;
-          return `<a href="${ensureHref(l.url)}" target="_blank" style="display:inline-flex;align-items:center;justify-content:center;width:${iconSize}px;height:${iconSize}px;border-radius:50%;background:#374151;color:#fff;text-decoration:none;margin-right:${iconGap}px;font-size:10px;font-family:sans-serif;">${(l.label||"?").slice(0,2).toUpperCase()}</a>`;
+          if (l.iconUrl) return `<a href="${ensureHref(l.url)}" target="_blank" title="${l.label||""}" style="${itemStyle}"><img src="${l.iconUrl}" width="${iconSize}" height="${iconSize}" style="display:block;vertical-align:bottom;border:none;" /></a>`;
+          return `<a href="${ensureHref(l.url)}" target="_blank" style="${layout === "vertical" ? `display:flex;` : `display:inline-flex;`}align-items:center;justify-content:center;width:${iconSize}px;height:${iconSize}px;border-radius:50%;background:#374151;color:#fff;text-decoration:none;${layout === "vertical" ? `margin-bottom:${iconGap}px;` : `margin-right:${iconGap}px;`}font-size:10px;font-family:sans-serif;">${(l.label||"?").slice(0,2).toUpperCase()}</a>`;
         }).join("");
         // display:inline-block makes this row shrink-wrap its icons instead of
         // stretching to the full column width. That fixes the canvas selection
@@ -2316,7 +2327,11 @@ function renderElementInner(el, profile, forCanvas) {
         // It's also correct for export: a shrink-wrapped inline-block row of
         // icons is standard, and it lets the align wrapper's text-align actually
         // center/right-position the icons (a full-width block ignored it).
-        return `<div style="display:inline-block;height:${iconSize}px;line-height:0;font-size:0;padding-top:${s.paddingTop||'0px'};margin-top:0;margin-bottom:${s.marginBottom||'0px'};mso-padding-alt:${s.paddingTop||'0px'} 0 0 0;mso-margin-top-alt:0;mso-margin-bottom-alt:${s.marginBottom||'0px'};">${btns}${customBtns}</div>`;
+        // A fixed height only makes sense for horizontal (one row tall);
+        // vertical needs to grow with however many icons are stacked, so it's
+        // left to size naturally instead of being pinned to a single icon's height.
+        const wrapperHeight = layout === "vertical" ? "" : `height:${iconSize}px;`;
+        return `<div style="display:inline-block;${wrapperHeight}line-height:0;font-size:0;padding-top:${s.paddingTop||'0px'};margin-top:0;margin-bottom:${s.marginBottom||'0px'};mso-padding-alt:${s.paddingTop||'0px'} 0 0 0;mso-margin-top-alt:0;mso-margin-bottom-alt:${s.marginBottom||'0px'};">${btns}${customBtns}</div>`;
       }
       default: return textLine(interpolate("{{"+el.subtype+"}}", profile));
     }
@@ -3379,6 +3394,47 @@ export default function App() {
     saveProfile(updated);
   }
 
+  // Smart Fields (Name, Photo, Phone, Address, etc.) normally read from and
+  // write to the account's own persisted profile above -- correct when
+  // someone's building their own signature, but wrong when staff builds one
+  // FOR an agent: typing the agent's name into the Name field was silently
+  // overwriting the staff member's own profile.name in Firestore, because
+  // there was only ever one place for that data to go. "Autofill My
+  // Details" (a per-signature flag, not an account setting) is the fix:
+  // when it's off, edits to Smart Fields go into activeSig.manualOverrides
+  // instead -- scoped to just this one signature, saved and shared right
+  // alongside it, and never touching the real account profile at all.
+  function updateSigOverrideField(field, val) {
+    if (!activeSig) return;
+    pushSig({ ...activeSig, manualOverrides: { ...(activeSig.manualOverrides||{}), [field]: val } });
+  }
+  function toggleAutofill() {
+    if (!activeSig) return;
+    const currentlyOn = activeSig.autofillEnabled !== false; // undefined = on, matches old behavior
+    pushSig({ ...activeSig, autofillEnabled: !currentlyOn });
+  }
+  // Routes a Smart Field edit to the right place depending on the toggle
+  // above, without any of Editor's internals needing to know which one is
+  // active -- every existing call site that already calls
+  // onUpdateProfileField(...) (inline canvas edits, the photo/logo upload
+  // flows, the panel's manual-entry inputs) gets routed correctly for free.
+  function routeProfileFieldUpdate(field, val) {
+    if (activeSig && activeSig.autofillEnabled === false) {
+      updateSigOverrideField(field, val);
+    } else {
+      updateProfileField(field, val);
+    }
+  }
+  // What Smart Fields actually render from. Autofill on (the default, and
+  // the only behavior that existed before this): the real account profile,
+  // unchanged. Autofill off: the account profile with this signature's own
+  // manual overrides layered on top -- so switching it off for a fresh
+  // design starts from whatever the account profile currently shows (a
+  // reasonable starting point to edit from) without ever writing back to it.
+  const effectiveProfile = (activeSig && activeSig.autofillEnabled === false)
+    ? { ...profile, ...(activeSig.manualOverrides||{}) }
+    : profile;
+
   const [prevScreen, setPrevScreen] = useState("home");
   function navigate(s) {
     setPrevScreen(screen);
@@ -4141,7 +4197,9 @@ export default function App() {
         />}
         {screen === "editor" && activeSig && (
           <Editor
-            sig={activeSig} profile={profile}
+            sig={activeSig} profile={effectiveProfile}
+            autofillEnabled={!activeSig || activeSig.autofillEnabled !== false}
+            onToggleAutofill={toggleAutofill}
             editorTab={editorTab} setEditorTab={setEditorTab}
             selectedRowId={selectedRowId} setSelectedRowId={id => { setSelectedRowId(id); setSelectedElId(null); }}
             selectedElId={selectedElId} setSelectedElId={setSelectedElId}
@@ -4162,13 +4220,13 @@ export default function App() {
             onUpdateElStyle={updateElStyle} onUpdateElContent={updateElContent} onUpdateRowStyle={updateRowStyle}
             onUpdateName={name => setActiveSig({...activeSig, name})}
             onSave={() => saveCurrent(false)} onNavigate={navigate} prevScreen={prevScreen} lastSavedAt={lastSavedAt} onShareLink={() => copyShareLink(activeSig)}
-            mediaLibrary={mediaLibrary} onAddMedia={addToMediaLibrary} onUpdateProfileField={updateProfileField}
+            mediaLibrary={mediaLibrary} onAddMedia={addToMediaLibrary} onUpdateProfileField={routeProfileFieldUpdate}
             adminMode={adminMode} isEditingTemplate={!!editingTemplateId} onOpenTemplateSaveModal={openTemplateSaveModal}
           />
         )}
         {screen === "profile" && <ProfileForm profile={profile} onSave={p => { saveProfile(p); showToast("Profile saved!"); }} onNavigate={navigate} onAddMedia={addToMediaLibrary} />}
         {screen === "media" && <MediaLibraryPage mediaLibrary={mediaLibrary} signatures={signatures} onDelete={deleteFromMediaLibrary} onAddMedia={addToMediaLibrary} onNavigate={navigate} />}
-        {screen === "export" && activeSig && <ExportScreen sig={activeSig} profile={profile} onNavigate={navigate} onSave={saveCurrent} />}
+        {screen === "export" && activeSig && <ExportScreen sig={activeSig} profile={effectiveProfile} onNavigate={navigate} onSave={saveCurrent} />}
       </main>
 
       {/* Toast */}
@@ -4892,7 +4950,14 @@ function ColSelectBadge({ colIdx, isSelected, visible, onClick }) {
     <div
       onClick={onClick}
       style={{
-        position:"absolute", top:2, left:"50%", transform:"translateX(-50%)",
+        // Was top:2 (just inside the column's own top edge), which sat
+        // directly over whatever content was there -- fine for a wide
+        // column with room to spare, but it fully covered short/skinny
+        // content in a narrow column (e.g. a small icon in a slim far-right
+        // column). top:-18 moves it to genuinely float above the column,
+        // outside its content area entirely, the same way the row badge
+        // already sits outside to the side rather than on top of anything.
+        position:"absolute", top:-18, left:"50%", transform:"translateX(-50%)",
         background: isSelected ? "#0051d5" : "#3b82f6",
         color: "#fff",
         borderRadius:4, padding:"2px 7px", fontSize:8, fontWeight:700,
@@ -5469,6 +5534,24 @@ function AdvancedSocialPanel({ el, profile, inputStyle, onUpdateElStyle, onUpdat
                 onChange={e=>onUpdateElStyle("iconSize",e.target.value)}
                 style={{ flex:1 }} />
               <span style={{ fontSize:14, color:"#374151", minWidth:30 }}>{s.iconSize||16}px</span>
+            </div>
+          </div>
+
+          {/* Layout -- horizontal (icons side by side, the original/default)
+              or vertical (stacked top to bottom). Icon Spacing below governs
+              the gap either way: between icons left-to-right in horizontal,
+              or top-to-bottom in vertical. */}
+          <div>
+            <span style={{ fontSize:14, fontWeight:700, color:"#6b7280", display:"block", marginBottom:5, textTransform:"uppercase", letterSpacing:0.6 }}>Layout</span>
+            <div style={{ display:"flex", gap:8 }}>
+              <button onClick={()=>onUpdateElStyle("socialLayout","horizontal")}
+                style={{ flex:1, padding:"7px 10px", borderRadius:6, border: (s.socialLayout||"horizontal")==="horizontal" ? "1.5px solid #0051d5" : "1.5px solid #e5e7eb", background: (s.socialLayout||"horizontal")==="horizontal" ? "#eff6ff" : "#fff", color: (s.socialLayout||"horizontal")==="horizontal" ? "#0051d5" : "#374151", fontSize:14, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
+                Horizontal
+              </button>
+              <button onClick={()=>onUpdateElStyle("socialLayout","vertical")}
+                style={{ flex:1, padding:"7px 10px", borderRadius:6, border: s.socialLayout==="vertical" ? "1.5px solid #0051d5" : "1.5px solid #e5e7eb", background: s.socialLayout==="vertical" ? "#eff6ff" : "#fff", color: s.socialLayout==="vertical" ? "#0051d5" : "#374151", fontSize:14, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
+                Vertical
+              </button>
             </div>
           </div>
 
@@ -6221,7 +6304,7 @@ function InlineEditableText({ el, profile, onChangeContent, onChangeProfileField
 }
 
 
-function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelectedRowId, selectedElId, setSelectedElId, selectedRow, selectedEl, onAddRow, onAddEl, onAddBanner, onAddBadgeRow, onDeleteEl, onDeleteRow, onDuplicateRow, onDuplicateEl, onReorderRows, onMoveRowUp, onMoveRowDown, onMoveElUp, onMoveElDown, onMoveElToCol, onDeleteColumn, onAddColumn, selectedColId, setSelectedColId, onUpdateColStyle, onUpdateColWidths, onSwapElStyleKeys, onUpdateElStyleMulti, onUpdateElContentAndStyle, onUndo, onRedo, canUndo, canRedo, onUpdateElStyle, onUpdateElContent, onUpdateRowStyle, onUpdateName, onSave, onNavigate, prevScreen, lastSavedAt, onShareLink, mediaLibrary, onAddMedia, onUpdateProfileField, adminMode, isEditingTemplate, onOpenTemplateSaveModal }) {
+function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, setEditorTab, selectedRowId, setSelectedRowId, selectedElId, setSelectedElId, selectedRow, selectedEl, onAddRow, onAddEl, onAddBanner, onAddBadgeRow, onDeleteEl, onDeleteRow, onDuplicateRow, onDuplicateEl, onReorderRows, onMoveRowUp, onMoveRowDown, onMoveElUp, onMoveElDown, onMoveElToCol, onDeleteColumn, onAddColumn, selectedColId, setSelectedColId, onUpdateColStyle, onUpdateColWidths, onSwapElStyleKeys, onUpdateElStyleMulti, onUpdateElContentAndStyle, onUndo, onRedo, canUndo, canRedo, onUpdateElStyle, onUpdateElContent, onUpdateRowStyle, onUpdateName, onSave, onNavigate, prevScreen, lastSavedAt, onShareLink, mediaLibrary, onAddMedia, onUpdateProfileField, adminMode, isEditingTemplate, onOpenTemplateSaveModal }) {
   const inputStyle = { width:"100%", border:"1px solid #e5e7eb", borderRadius:6, padding:"6px 8px", fontSize:15, fontFamily:"inherit", outline:"none" };
   const propLabel = { fontSize:15, fontWeight:600, color:"#6b7280", marginBottom:4, display:"block" };
 
@@ -6934,6 +7017,19 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
             </button>
           </div>
           <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+            {/* When off, Smart Fields (Name, Photo, Phone, etc.) stop reading
+                from and writing to this account's own profile -- instead
+                they read/write a set of overrides stored on THIS signature
+                only. That's what makes it safe for staff to type an agent's
+                real name/photo/contact info into a design without it
+                silently overwriting their own profile in Firestore. */}
+            <button onClick={onToggleAutofill} title={autofillEnabled ? "Turn off to manually type this agent's details without changing your own profile" : "Turn on to autofill from your own profile again"}
+              style={{ display:"flex", alignItems:"center", gap:7, background: autofillEnabled ? "#f9fafb" : "#fef3c7", border: autofillEnabled ? "1px solid #d1d5db" : "1px solid #fbbf24", borderRadius:6, padding:"5px 10px", cursor:"pointer", fontFamily:"inherit", marginRight:2 }}>
+              <div style={{ position:"relative", width:28, height:16, borderRadius:8, background: autofillEnabled ? "#0051d5" : "#d1d5db", transition:"background 0.15s", flexShrink:0 }}>
+                <div style={{ position:"absolute", top:2, left: autofillEnabled ? 14 : 2, width:12, height:12, borderRadius:"50%", background:"#fff", transition:"left 0.15s" }} />
+              </div>
+              <span style={{ fontSize:14, fontWeight:600, color: autofillEnabled ? "#374151" : "#92400e" }}>Autofill My Details</span>
+            </button>
             {lastSavedAt && (
               <span style={{ fontSize:14, color:"#9ca3af", marginRight:2 }}>
                 Saved {Math.max(0, Math.round((Date.now()-lastSavedAt.getTime())/1000))<5 ? "just now" : new Date(lastSavedAt).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}
@@ -7074,7 +7170,13 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
 
                 {/* Canvas body -- capped at 600px + right gutter for row badges,
                     top gutter for column badges */}
-        <div style={{ maxWidth:900, margin:"0 auto", paddingRight:44, paddingTop:8, boxSizing:"border-box", width:"100%", display:"flex", justifyContent:"center", overflow:"hidden" }}>
+        {/* paddingTop bumped from 8 to 24 -- this wrapper clips anything above
+            it (overflow:hidden), and the column-select badge above now floats
+            18px above row 1's own top edge (see ColSelectBadge) instead of
+            sitting inside the column. Without this extra headroom, row 1's
+            badge specifically would get clipped by this boundary even though
+            every other row has enough natural gap above it already. */}
+        <div style={{ maxWidth:900, margin:"0 auto", paddingRight:44, paddingTop:24, boxSizing:"border-box", width:"100%", display:"flex", justifyContent:"center", overflow:"hidden" }}>
         <div style={{ width:600, flexShrink:0, transform:`scale(${canvasScale})`, transformOrigin:"top center", marginBottom: canvasContentHeight*(canvasScale-1) }}>
         <div ref={canvasRef} className="canvas-container" style={{ background:"#fff", border:"1px solid #e5e7eb", width:600, maxWidth:600, margin:"0", boxSizing:"border-box", position:"relative" }}
           onClick={() => { setSelectedRowId(null); setSelectedElId(null); setSelectedColId(null); }}
