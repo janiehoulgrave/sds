@@ -2077,17 +2077,22 @@ function renderElementInner(el, profile, forCanvas) {
   // Wraps a line of text in its own single-row, single-cell table -- the
   // email-safe equivalent of a <div>, but immune to the div-stacking quirks
   // Gmail's paste sanitizer applies inconsistently.
+  // Centralized here instead of per-element-type: every Smart Field (Name,
+  // Title, Phone, Email, Address, etc.) already routes through this one
+  // function to build its output row, same as plain Text elements do. Link
+  // support used to live only in the "text" case below, which meant a
+  // hyperlink could only ever be added to a generic Text block -- not to any
+  // Smart Field, even though the property panel's Link control has always
+  // been offered per-element without restricting which types could use it.
+  // Putting it here once makes every field type support it automatically.
   function textLine(content) {
-    return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;width:100%;"><tr><td style="${baseStyle}">${content}</td></tr></table>`;
+    const href = el.linkType ? buildLinkHref(el.linkType, el.linkUrl) : "";
+    const inner = href ? `<a href="${href}" style="color:inherit;text-decoration:inherit;">${content}</a>` : content;
+    return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;width:100%;"><tr><td style="${baseStyle}">${inner}</td></tr></table>`;
   }
 
   if (el.type === "text") {
-    const content = interpolate(el.content || "", profile);
-    const href = el.linkType ? buildLinkHref(el.linkType, el.linkUrl) : "";
-    if (href) {
-      return textLine(`<a href="${href}" style="color:inherit;text-decoration:inherit;">${content}</a>`);
-    }
-    return textLine(content);
+    return textLine(interpolate(el.content || "", profile));
   }
   if (el.type === "image") {
     const src = el.content || "";
@@ -2238,9 +2243,19 @@ function renderElementInner(el, profile, forCanvas) {
       }
       case "phone": return textLine(profile.phone||"(555) 000-0000");
       case "mobile": return textLine(profile.mobile||"(555) 000-0000");
-      case "email": return textLine(`<a href="mailto:${profile.email}" style="color:${fColor};text-decoration:none;">${profile.email||"you@compass.com"}</a>`);
+      // Both of these default to their own sensible link (mailto:/website
+      // URL) when nobody's touched the Link control -- but if a custom link
+      // HAS been set via the panel, that takes over instead. Without this
+      // check, textLine's own wrapping (now shared across all Smart Fields)
+      // would nest a second <a> inside this one's default <a>, which is
+      // invalid HTML and would just render the outer link, silently
+      // ignoring whatever custom link/phone/email the person actually chose.
+      case "email":
+        if (el.linkType) return textLine(profile.email||"you@compass.com");
+        return textLine(`<a href="mailto:${profile.email}" style="color:${fColor};text-decoration:none;">${profile.email||"you@compass.com"}</a>`);
       case "website": {
         const wsite = profile.website || "compass.com";
+        if (el.linkType) return textLine(wsite);
         return textLine(`<a href="${ensureHref(profile.website||"compass.com")}" style="color:${fColor};text-decoration:none;">${wsite}</a>`);
       }
       case "address": return textLine(profile.address||"123 Main St");
@@ -6313,6 +6328,23 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
   const inputStyle = { width:"100%", border:"1px solid #e5e7eb", borderRadius:6, padding:"6px 8px", fontSize:15, fontFamily:"inherit", outline:"none" };
   const propLabel = { fontSize:15, fontWeight:600, color:"#6b7280", marginBottom:4, display:"block" };
 
+  // Backs the toolbar's Link button (see the Row 2 formatting bar below):
+  // clicking it selects the element that's actually focused for editing
+  // (which can differ from selectedElId while inline-editing text), scrolls
+  // the Link section of the right-hand panel into view, and gives it a
+  // brief highlight so it's obvious where to look rather than making
+  // someone hunt for it themselves.
+  const linkSectionRef = useRef(null);
+  const [linkHighlight, setLinkHighlight] = useState(false);
+  function jumpToLinkField(elId) {
+    setSelectedElId(elId);
+    setTimeout(() => {
+      linkSectionRef.current?.scrollIntoView({ behavior:"smooth", block:"center" });
+      setLinkHighlight(true);
+      setTimeout(() => setLinkHighlight(false), 1600);
+    }, 50);
+  }
+
   // Delete/Backspace removes the selected element -- guarded against firing
   // while the user is actually typing (a text input, a padding field, or
   // editing text in the canvas itself), so backspacing a letter never
@@ -7151,6 +7183,12 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
                   </button>;
                 })}
                 <div style={{ width:1, height:22, background:"#e5e7eb", margin:"0 2px" }} />
+                <button onMouseDown={e=>{ e.preventDefault(); jumpToLinkField(el.id); }} title="Add or edit this element's link"
+                  style={{ width:32,height:32,border:`1.5px solid ${el.linkType?"#0051d5":"#e5e7eb"}`,borderRadius:6,
+                    background:el.linkType?"#eff6ff":"transparent",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center" }}>
+                  <Icon name="link" size={17} color={el.linkType?"#0051d5":"#6b7280"} />
+                </button>
+                <div style={{ width:1, height:22, background:"#e5e7eb", margin:"0 2px" }} />
                 <button onMouseDown={e=>{e.preventDefault();onUpdateElStyle("textTransform",el.style?.textTransform==="uppercase"?"":"uppercase");}}
                   style={{ fontSize:11,fontWeight:800,padding:"4px 10px",borderRadius:6,letterSpacing:0.5,fontFamily:"inherit",cursor:"pointer",height:32,
                     border:`1.5px solid ${el.style?.textTransform==="uppercase"?"#0051d5":"#e5e7eb"}`,
@@ -7482,14 +7520,17 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
               </div>
             )}
 
-            {/* Link -- lets any text element become clickable, pointing to a
-                website, an email address (mailto:), or a phone number
-                (tel:). linkType tells buildLinkHref() which scheme to apply
-                so the person can just type "jane@compass.com" or a phone
-                number as-is instead of needing to know the mailto:/tel:
-                syntax themselves. */}
-            {selectedEl.type==="text" && (
-              <div style={{ marginBottom:10 }}>
+            {/* Link -- lets any text-like element become clickable, pointing
+                to a website, an email address (mailto:), or a phone number
+                (tel:). Covers plain Text blocks AND Smart Fields (Name,
+                Title, Phone, Email, Address, etc.) -- previously restricted
+                to just Text, even though there was never a real reason a
+                Smart Field couldn't be linked too. linkType tells
+                buildLinkHref() which scheme to apply so the person can just
+                type "jane@compass.com" or a phone number as-is instead of
+                needing to know the mailto:/tel: syntax themselves. */}
+            {(selectedEl.type==="text" || (selectedEl.type==="dynamic" && DYNAMIC_PROFILE_FIELD[selectedEl.subtype])) && (
+              <div ref={linkSectionRef} style={{ borderRadius:8, padding: linkHighlight ? 8 : 0, margin: linkHighlight ? -8 : 0, marginBottom: linkHighlight ? 2 : 10, background: linkHighlight ? "#eff6ff" : "transparent", boxShadow: linkHighlight ? "0 0 0 2px #0051d5" : "none", transition:"background 0.3s, box-shadow 0.3s" }}>
                 <span style={propLabel}>Link</span>
                 <select style={inputStyle} value={selectedEl.linkType||""} onChange={e=>{
                   onUpdateElStyle("__linkType__", e.target.value);
