@@ -3427,12 +3427,17 @@ export default function App() {
   }
   // What Smart Fields actually render from. Autofill on (the default, and
   // the only behavior that existed before this): the real account profile,
-  // unchanged. Autofill off: the account profile with this signature's own
-  // manual overrides layered on top -- so switching it off for a fresh
-  // design starts from whatever the account profile currently shows (a
-  // reasonable starting point to edit from) without ever writing back to it.
+  // unchanged. Autofill off: starts from a genuinely BLANK profile (every
+  // field empty, same as DEFAULT_PROFILE), with this signature's own manual
+  // overrides layered on top -- not the real profile as a starting point.
+  // Basing it on the real profile made the toggle look like it did nothing
+  // until every field had already been retyped by hand, since nothing
+  // visibly changed the moment you flipped it off. Starting blank means each
+  // Smart Field immediately falls back to its own placeholder text (e.g.
+  // "Your Name"), so it's obvious at a glance that autofill is off and
+  // everything here is safe to type over without touching the real profile.
   const effectiveProfile = (activeSig && activeSig.autofillEnabled === false)
-    ? { ...profile, ...(activeSig.manualOverrides||{}) }
+    ? { ...DEFAULT_PROFILE, ...(activeSig.manualOverrides||{}) }
     : profile;
 
   const [prevScreen, setPrevScreen] = useState("home");
@@ -7209,9 +7214,27 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
               onEnter={setRowInsertGap} onLeave={(i)=>setRowInsertGap(prev=>prev===i?null:prev)}
               onDropRow={(cols,idx)=>{ guardedAddRow(cols, idx); setLayoutDragActive(false); }} />
             <div style={{ position:"relative" }}>
-            {/* Row select toggle in the grey margin on the right */}
+            {/* Row select toggle in the grey margin on the right, plus move
+                up/down -- these used to be a separate badge floating INSIDE
+                the row's own top-right corner (top:2, right:2), directly
+                overlapping whatever content was there (visible, for example,
+                in a narrow third column). Moved below this same
+                outside-the-row badge instead, so nothing here ever sits on
+                top of the actual design. */}
             <RowSelectBadge rowIdx={ri} isSelected={row.id===selectedRowId}
               onClick={e=>{ e.stopPropagation(); setSelectedRowId(row.id===selectedRowId?null:row.id); setSelectedElId(null); setSelectedColId(null); }} />
+            {row.id===selectedRowId && (
+              <div style={{ position:"absolute", right:-38, top:"calc(50% + 32px)", display:"flex", flexDirection:"column", gap:3, zIndex:10 }}>
+                <button onClick={e=>{ e.stopPropagation(); onMoveRowUp(row.id); }} title="Move row up"
+                  style={{ background:"#0051d5", border:"none", borderRadius:3, width:18, height:18, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", padding:0 }}>
+                  <Icon name="arrow_upward" size={11} color="#fff" />
+                </button>
+                <button onClick={e=>{ e.stopPropagation(); onMoveRowDown(row.id); }} title="Move row down"
+                  style={{ background:"#0051d5", border:"none", borderRadius:3, width:18, height:18, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", padding:0 }}>
+                  <Icon name="arrow_downward" size={11} color="#fff" />
+                </button>
+              </div>
+            )}
             <div
               onClick={e => { if(e.target === e.currentTarget || !selectedElId) { setSelectedRowId(row.id); setSelectedElId(null); setSelectedColId(null); }}}
               draggable
@@ -7254,20 +7277,9 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
                 } : {}),
                 cursor:"grab"
               }}>
-              {/* Row label + drag handle, shown when selected */}
-              <div style={{ position:"absolute", top:2, right:2, display:"flex", alignItems:"center", gap:3, opacity: row.id===selectedRowId?1:0, pointerEvents: row.id===selectedRowId?"auto":"none", zIndex:3 }}>
-                <button onClick={e=>{ e.stopPropagation(); onMoveRowUp(row.id); }} title="Move row up"
-                  style={{ background:"#0051d5", border:"none", borderRadius:3, width:18, height:18, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", padding:0 }}>
-                  <Icon name="arrow_upward" size={11} color="#fff" />
-                </button>
-                <button onClick={e=>{ e.stopPropagation(); onMoveRowDown(row.id); }} title="Move row down"
-                  style={{ background:"#0051d5", border:"none", borderRadius:3, width:18, height:18, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", padding:0 }}>
-                  <Icon name="arrow_downward" size={11} color="#fff" />
-                </button>
-                <div title="Drag to reorder" style={{ background:"#0051d5", color:"#fff", borderRadius:3, padding:"1px 5px", fontSize:8, fontWeight:700, display:"flex", alignItems:"center", gap:2, cursor:"grab" }}>
-                  <Icon name="drag_indicator" size={11} color="#fff" /> Row {ri+1}
-                </div>
-              </div>
+              {/* Row move/drag controls now live in the outside-right badge
+                  above (RowSelectBadge + move buttons), not floating inside
+                  the row's own content area. */}
               <table cellPadding="0" cellSpacing="0" style={{ width:"100%", borderCollapse:"collapse", tableLayout:"fixed" }}>
                 <tbody><tr>
                   {row.columns.map((col, ci) => {
