@@ -104,6 +104,48 @@ function buildLinkHref(linkType, value) {
   return ensureHref(v);
 }
 
+function escapeHtml(str) {
+  return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+// Plain Text elements can now have a link applied to just PART of their
+// text (select a few words, link only those) instead of only the whole
+// element. That means el.content can contain a real embedded <a> tag now,
+// not just plain text -- so it's synced via the DOM's innerHTML rather than
+// textContent/innerText. But contentEditable divs happily accumulate all
+// sorts of other tags too (typing can insert <div>/<br>, pasting can bring
+// in <b>/<span>/<font>/inline styles from wherever it came from), and none
+// of that is something this app's rendering or styling model supports --
+// every other style choice here (bold, color, font) is a whole-element CSS
+// property, not per-character rich text. So on every sync, this strips
+// everything down to plain text plus ONLY <a href="..."> tags rebuilt with
+// our own minimal, known-safe attributes -- nothing pasted-in ever survives
+// as executable markup or unexpected formatting.
+function sanitizeInlineLinkHtml(html) {
+  if (!html) return "";
+  const tmp = document.createElement("div");
+  tmp.innerHTML = html;
+  function walk(node) {
+    let out = "";
+    node.childNodes.forEach(child => {
+      if (child.nodeType === 3) {
+        out += child.textContent;
+      } else if (child.nodeType === 1) {
+        if (child.tagName === "A" && child.getAttribute("href")) {
+          const href = child.getAttribute("href").replace(/"/g, "&quot;");
+          out += `<a href="${href}" style="color:inherit;text-decoration:underline;">${walk(child)}</a>`;
+        } else if (child.tagName === "BR" || child.tagName === "DIV" || child.tagName === "P") {
+          out += " " + walk(child);
+        } else {
+          out += walk(child);
+        }
+      }
+    });
+    return out;
+  }
+  return walk(tmp).replace(/\s+/g, " ").trim();
+}
+
 function interpolate(text, profile) {
   if (!text) return "";
   // Convert (R) shorthand to registered trademark symbol
@@ -2086,7 +2128,15 @@ function renderElementInner(el, profile, forCanvas) {
   // been offered per-element without restricting which types could use it.
   // Putting it here once makes every field type support it automatically.
   function textLine(content) {
-    const href = el.linkType ? buildLinkHref(el.linkType, el.linkUrl) : "";
+    // A Text element can now have a link on just part of its text (an
+    // embedded <a> already inside `content`, from the inline selection
+    // popup) as well as the old whole-element link (el.linkType). Wrapping
+    // the whole thing in a second <a> when one's already embedded would
+    // nest anchors, which is invalid HTML and unpredictable across email
+    // clients -- so the whole-element wrap only applies when there's no
+    // partial link already inside the content itself.
+    const hasEmbeddedLink = /<a\s/i.test(content);
+    const href = (!hasEmbeddedLink && el.linkType) ? buildLinkHref(el.linkType, el.linkUrl) : "";
     const inner = href ? `<a href="${href}" style="color:inherit;text-decoration:inherit;">${content}</a>` : content;
     return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;width:100%;"><tr><td style="${baseStyle}">${inner}</td></tr></table>`;
   }
@@ -2223,9 +2273,16 @@ function renderElementInner(el, profile, forCanvas) {
       }
       // Convert ^text^ to superscript HTML, and (R) to ® -- applySup is
       // defined at the top of this function now, see comment there.
-      case "name": { const nameVal = applySup(profile.name||"Your Name"); return textLine(nameVal); }
-      case "title": return textLine(profile.title||"Realtor®");
-      case "company": return textLine(profile.company||"Compass");
+      // Every one of these now checks el.content first -- that's what
+      // storing an Autofill-off override in the element itself (instead of
+      // a separate profile-keyed object) actually buys: this same one-line
+      // change is all a Smart Field needs to inherit a manual override,
+      // whether or not it happens to also have special default-link
+      // behavior (email/website) or its own auto-compute logic (phones,
+      // just below, which already worked this way).
+      case "name": { const nameVal = applySup(el.content || profile.name||"Your Name"); return textLine(nameVal); }
+      case "title": return textLine(el.content || profile.title||"Realtor®");
+      case "company": return textLine(el.content || profile.company||"Compass");
       case "phones": {
         // Combines mobile + office phone into one auto-formatted line, pulled
         // live from the profile by default -- but since this element is now
@@ -2241,25 +2298,29 @@ function renderElementInner(el, profile, forCanvas) {
         else phoneText = "Mobile: (555) 000-0000 | Office: (555) 000-0000";
         return textLine(phoneText);
       }
-      case "phone": return textLine(profile.phone||"(555) 000-0000");
-      case "mobile": return textLine(profile.mobile||"(555) 000-0000");
+      case "phone": return textLine(el.content || profile.phone||"(555) 000-0000");
+      case "mobile": return textLine(el.content || profile.mobile||"(555) 000-0000");
       // Both of these default to their own sensible link (mailto:/website
       // URL) when nobody's touched the Link control -- but if a custom link
-      // HAS been set via the panel, that takes over instead. Without this
-      // check, textLine's own wrapping (now shared across all Smart Fields)
-      // would nest a second <a> inside this one's default <a>, which is
-      // invalid HTML and would just render the outer link, silently
-      // ignoring whatever custom link/phone/email the person actually chose.
+      // HAS been set via the panel, or el.content holds an Autofill-off
+      // manual override (which may itself contain its own inline link from
+      // the selection popup), that takes over instead. Without this check,
+      // textLine's own wrapping (now shared across all Smart Fields) would
+      // nest a second <a> inside this one's default <a>, which is invalid
+      // HTML and would just render the outer link, silently ignoring
+      // whatever custom link/phone/email the person actually chose.
       case "email":
+        if (el.content) return textLine(el.content);
         if (el.linkType) return textLine(profile.email||"you@compass.com");
         return textLine(`<a href="mailto:${profile.email}" style="color:${fColor};text-decoration:none;">${profile.email||"you@compass.com"}</a>`);
       case "website": {
+        if (el.content) return textLine(el.content);
         const wsite = profile.website || "compass.com";
         if (el.linkType) return textLine(wsite);
         return textLine(`<a href="${ensureHref(profile.website||"compass.com")}" style="color:${fColor};text-decoration:none;">${wsite}</a>`);
       }
-      case "address": return textLine(profile.address||"123 Main St");
-      case "bio": return textLine(profile.bio||"");
+      case "address": return textLine(el.content || profile.address||"123 Main St");
+      case "bio": return textLine(el.content || profile.bio||"");
       case "social": {
         const socialStyle = s.socialStyle || "colored";
         const iconSize = parseInt(s.iconSize) || 16;
@@ -6167,7 +6228,7 @@ function LinkedDimensionPair({ propLabel, inputStyle, widthValue, heightValue, w
   );
 }
 
-function InlineEditableText({ el, profile, onChangeContent, onChangeProfileField, onFocusEl, onBlurEl }) {
+function InlineEditableText({ el, profile, autofillEnabled, onChangeContent, onChangeProfileField, onFocusEl, onBlurEl }) {
   const s = el.style || {};
   const ref = useRef(null);
   const isDynamic = el.type === "dynamic";
@@ -6182,6 +6243,60 @@ function InlineEditableText({ el, profile, onChangeContent, onChangeProfileField
   // double-click still lets you type, with no conflict between the two.
   const [editing, setEditing] = useState(false);
 
+  // Selection-based inline link popup -- available for plain Text elements,
+  // AND for Smart Fields once Autofill is off. That second part is the
+  // whole point of the isPlainText flag below being more than just "not
+  // dynamic": with autofill off, a Smart Field's value is no longer pulled
+  // live from the shared account profile at all -- it's already routed (via
+  // routeProfileFieldUpdate, upstream in App) to a per-signature override,
+  // completely decoupled from anything shared. Once that's true there's no
+  // remaining reason it can't behave exactly like a real Text element: same
+  // storage (el.content instead of profile[field]), same edit path, and for
+  // free, the same inline-link-on-a-selection support this block enables.
+  // Whether a field is "acting as text" is therefore just: is it a plain
+  // Text element, OR is it Dynamic with autofill off (autofillEnabled prop
+  // reflects the signature-level toggle, not any per-field state).
+  const isPlainText = !isDynamic || autofillEnabled === false;
+  const [linkPopup, setLinkPopup] = useState(null); // {x,y,range,mode:'button'|'form',text}
+  const [linkType, setLinkType] = useState("website");
+  const [linkValue, setLinkValue] = useState("");
+  const popupRef = useRef(null);
+
+  function handleSelect() {
+    if (!isPlainText || !editing || !ref.current) return;
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) { setLinkPopup(null); return; }
+    const range = sel.getRangeAt(0);
+    // Only react to selections actually inside this element -- clicking
+    // around while some other field's text happens to still be selected
+    // shouldn't pop this up.
+    if (!ref.current.contains(range.commonAncestorContainer)) { setLinkPopup(null); return; }
+    const rect = range.getBoundingClientRect();
+    if (!rect || (rect.width === 0 && rect.height === 0)) { setLinkPopup(null); return; }
+    setLinkPopup({ x: rect.left + rect.width/2, y: rect.top, range: range.cloneRange(), mode: "button", text: range.toString() });
+  }
+
+  function openLinkForm() {
+    setLinkType("website");
+    setLinkValue("");
+    setLinkPopup(p => p ? { ...p, mode: "form" } : p);
+  }
+
+  function applyInlineLink() {
+    if (!linkPopup || !ref.current) return;
+    const href = buildLinkHref(linkType, linkValue);
+    if (!href) { setLinkPopup(null); return; }
+    // Re-apply the saved selection -- focus/selection can have moved to the
+    // popup's own inputs since the text was originally highlighted.
+    ref.current.focus();
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(linkPopup.range);
+    document.execCommand("insertHTML", false, `<a href="${href.replace(/"/g,"&quot;")}" style="color:inherit;text-decoration:underline;">${escapeHtml(linkPopup.text)}</a>`);
+    onChangeContent(sanitizeInlineLinkHtml(ref.current.innerHTML));
+    setLinkPopup(null);
+  }
+
   function autoPhoneText() {
     const mobile = (profile.mobile||"").trim();
     const office = (profile.phone||"").trim();
@@ -6191,20 +6306,44 @@ function InlineEditableText({ el, profile, onChangeContent, onChangeProfileField
     return "Mobile: (555) 000-0000 | Office: (555) 000-0000";
   }
 
-  // What text should currently display
-  const displayValue = isPhones
-    ? (el.content || autoPhoneText())
-    : isDynamic
-      ? (profile[profileField] || DYNAMIC_PLACEHOLDER[el.subtype] || "")
-      : interpolate(el.content || "", profile);
+  // What text should currently display. Four cases, in priority order:
+  //  - Autofill off + this is a Smart Field: acts exactly like a Text
+  //    element now -- reads its own el.content, falling back to that
+  //    field's normal placeholder (e.g. "Your Name") when empty, same as a
+  //    fresh Text block would show placeholder-ish content. This is what
+  //    "act as a normal text element" actually means in practice: same
+  //    storage, same fallback pattern, same edit path as isPlainText below.
+  //  - A real Text element: unchanged, interpolate()'d el.content.
+  //  - Autofill on + the combined Phone field: unchanged, auto-computed
+  //    from profile.mobile/profile.phone unless manually overridden.
+  //  - Autofill on + any other Smart Field: unchanged, straight from the
+  //    (already autofill-aware) profile object passed in.
+  const displayValue = (isPlainText && isDynamic)
+    ? (el.content || DYNAMIC_PLACEHOLDER[el.subtype] || "")
+    : isPlainText
+      ? interpolate(el.content || "", profile)
+      : isPhones
+        ? (el.content || autoPhoneText())
+        : (profile[profileField] || DYNAMIC_PLACEHOLDER[el.subtype] || "");
 
   // Only sync DOM when NOT focused — prevents overwriting while typing
   useEffect(() => {
-    // Compare textContent (raw DOM text), NOT innerText -- innerText reflects CSS
-    // text-transform, so on uppercase-styled elements it never matches displayValue
-    // and rewrote the DOM on every render (cursor jumps / content-copy glitch).
-    if (!isFocused.current && ref.current && ref.current.textContent !== displayValue) {
-      ref.current.innerText = displayValue;
+    if (isFocused.current || !ref.current) return;
+    if (isPlainText) {
+      // Text elements may contain an embedded <a> now (from the inline link
+      // popup), so this has to compare/set innerHTML rather than
+      // innerText/textContent -- textContent would silently discard the
+      // <a> tag and just show its bare text.
+      if (ref.current.innerHTML !== displayValue) {
+        ref.current.innerHTML = displayValue;
+      }
+    } else {
+      // Compare textContent (raw DOM text), NOT innerText -- innerText reflects CSS
+      // text-transform, so on uppercase-styled elements it never matches displayValue
+      // and rewrote the DOM on every render (cursor jumps / content-copy glitch).
+      if (ref.current.textContent !== displayValue) {
+        ref.current.innerText = displayValue;
+      }
     }
     // eslint-disable-next-line
   }, [displayValue]);
@@ -6283,9 +6422,29 @@ function InlineEditableText({ el, profile, onChangeContent, onChangeProfileField
   function handleFocus() { isFocused.current = true; onFocusEl && onFocusEl(); }
 
   function handleBlur(e) {
+    // Clicking into the link popup's own URL input moves focus there, which
+    // fires this blur on the contentEditable -- but that's not really "done
+    // editing," it's mid-flow for applying a link. relatedTarget is the
+    // element actually receiving focus; if that's inside the popup, skip
+    // the close/save logic entirely and let the popup interaction continue
+    // uninterrupted (applyInlineLink re-focuses this field itself once the
+    // link is actually applied).
+    if (e.relatedTarget && popupRef.current && popupRef.current.contains(e.relatedTarget)) {
+      return;
+    }
     isFocused.current = false;
     setEditing(false);
+    setLinkPopup(null);
     onBlurEl && onBlurEl(e);
+    if (isPlainText) {
+      // innerHTML, not textContent -- textContent would silently drop any
+      // embedded <a> tag from the inline link popup and save only its bare
+      // text, discarding the link the moment the field lost focus.
+      const val = sanitizeInlineLinkHtml(e.currentTarget.innerHTML);
+      if (val === displayValue) return;
+      onChangeContent(val);
+      return;
+    }
     // textContent, NOT innerText: innerText returns the text AS RENDERED, so CSS
     // text-transform:uppercase would silently rewrite the profile name in ALL CAPS.
     const val = e.currentTarget.textContent;
@@ -6296,8 +6455,6 @@ function InlineEditableText({ el, profile, onChangeContent, onChangeProfileField
       onChangeContent(val);
     } else if (isDynamic) {
       onChangeProfileField(profileField, val);
-    } else {
-      onChangeContent(val);
     }
   }
 
@@ -6311,6 +6468,8 @@ function InlineEditableText({ el, profile, onChangeContent, onChangeProfileField
         onBlur={handleBlur}
         onDoubleClick={e => { e.stopPropagation(); setEditing(true); }}
         onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); e.currentTarget.blur(); } }}
+        onMouseUp={handleSelect}
+        onKeyUp={e => { if (e.shiftKey || e.key.startsWith("Arrow")) handleSelect(); }}
         style={style}
         // NOTE: content is intentionally NOT set here via dangerouslySetInnerHTML.
         // Pairing contentEditable with dangerouslySetInnerHTML makes React re-apply
@@ -6319,6 +6478,41 @@ function InlineEditableText({ el, profile, onChangeContent, onChangeProfileField
         // to their placeholder. The useEffect above is the ONLY thing that writes
         // to this node, and only when it's not focused -- i.e. never while typing.
       />
+      {/* Selection-based link popup for plain Text elements: highlight some
+          text, a small "Link" button appears right above it; click it to
+          get the type+URL form, right there, instead of the whole-field
+          Link control in the side panel. Fixed positioning (viewport
+          coordinates from getBoundingClientRect) since this needs to float
+          above the selection regardless of where it sits in the canvas,
+          including inside a scrolled/zoomed preview panel. */}
+      {linkPopup && (
+        <div ref={popupRef}
+          style={{ position:"fixed", left:linkPopup.x, top:linkPopup.y, transform:"translate(-50%, -100%)", zIndex:1000, marginTop:-8 }}>
+          {linkPopup.mode === "button" ? (
+            <button onClick={openLinkForm} onMouseDown={e => e.preventDefault()}
+              style={{ display:"flex", alignItems:"center", gap:5, background:"#111827", color:"#fff", border:"none", borderRadius:6, padding:"6px 10px", fontSize:13, fontWeight:600, cursor:"pointer", fontFamily:"inherit", boxShadow:"0 4px 12px rgba(0,0,0,0.25)", whiteSpace:"nowrap" }}>
+              <Icon name="link" size={14} color="#fff" /> Link
+            </button>
+          ) : (
+            <div style={{ background:"#fff", border:"1px solid #e5e7eb", borderRadius:8, padding:10, boxShadow:"0 8px 24px rgba(0,0,0,0.18)", width:220 }}>
+              <select autoFocus style={{ width:"100%", border:"1px solid #e5e7eb", borderRadius:6, padding:"6px 8px", fontSize:13, fontFamily:"inherit", marginBottom:6 }}
+                value={linkType} onChange={e=>setLinkType(e.target.value)}>
+                <option value="website">Website</option>
+                <option value="email">Email</option>
+                <option value="phone">Phone</option>
+              </select>
+              <input style={{ width:"100%", border:"1px solid #e5e7eb", borderRadius:6, padding:"6px 8px", fontSize:13, fontFamily:"inherit", marginBottom:8, boxSizing:"border-box" }}
+                placeholder={linkType==="email" ? "jane@compass.com" : linkType==="phone" ? "804.555.1234" : "https://"}
+                value={linkValue} onChange={e=>setLinkValue(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); applyInlineLink(); } if (e.key === "Escape") setLinkPopup(null); }} />
+              <div style={{ display:"flex", gap:6 }}>
+                <button onClick={()=>setLinkPopup(null)} style={{ flex:1, background:"#f3f4f6", border:"none", borderRadius:6, padding:"6px 0", fontSize:13, fontWeight:600, color:"#374151", cursor:"pointer", fontFamily:"inherit" }}>Cancel</button>
+                <button onClick={applyInlineLink} disabled={!linkValue.trim()} style={{ flex:1, background: linkValue.trim() ? "#0051d5" : "#93c5fd", border:"none", borderRadius:6, padding:"6px 0", fontSize:13, fontWeight:600, color:"#fff", cursor: linkValue.trim() ? "pointer" : "default", fontFamily:"inherit" }}>Apply</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -7408,7 +7602,7 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
                             )}
                             {isTextEditable ? (
                               <InlineEditableText
-                                key={el.id} el={el} profile={profile}
+                                key={el.id} el={el} profile={profile} autofillEnabled={autofillEnabled}
                                 onChangeContent={val => { setSelectedElId(el.id); onUpdateElContent(val); }}
                                 onChangeProfileField={(field,val) => onUpdateProfileField(field, val)}
                                 onFocusEl={()=>{ setFocusedElId(el.id); setSelectedElId(el.id); setSelectedRowId(row.id); }}
@@ -7529,7 +7723,11 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
                 buildLinkHref() which scheme to apply so the person can just
                 type "jane@compass.com" or a phone number as-is instead of
                 needing to know the mailto:/tel: syntax themselves. */}
-            {(selectedEl.type==="text" || (selectedEl.type==="dynamic" && DYNAMIC_PROFILE_FIELD[selectedEl.subtype])) && (
+            {/* subtype==="phones" is the combined Mobile+Office field -- it's
+                not a key in DYNAMIC_PROFILE_FIELD (only the separate "phone"
+                and "mobile" fields are), so it needs its own explicit check
+                here, same as the toolbar's isText condition already has. */}
+            {(selectedEl.type==="text" || selectedEl.subtype==="phones" || (selectedEl.type==="dynamic" && DYNAMIC_PROFILE_FIELD[selectedEl.subtype])) && (
               <div ref={linkSectionRef} style={{ borderRadius:8, padding: linkHighlight ? 8 : 0, margin: linkHighlight ? -8 : 0, marginBottom: linkHighlight ? 2 : 10, background: linkHighlight ? "#eff6ff" : "transparent", boxShadow: linkHighlight ? "0 0 0 2px #0051d5" : "none", transition:"background 0.3s, box-shadow 0.3s" }}>
                 <span style={propLabel}>Link</span>
                 <select style={inputStyle} value={selectedEl.linkType||""} onChange={e=>{
