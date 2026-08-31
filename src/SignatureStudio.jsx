@@ -2241,15 +2241,16 @@ function renderElementInner(el, profile, forCanvas) {
         // become a rectangle: set width and height to different values and the shape
         // preset still applies. object-fit:cover crops to fill the box without
         // squishing; max-width guards against overflow past a narrow column.
-        // For a SQUARE shape, width and height are fully independent (that's how
-        // you make a rectangle). For a CIRCLE, though, an unequal box renders as
-        // an oval, which is almost never what someone wants when they pick
-        // "Circle" -- and stray unequal values can sneak in from templates or an
-        // unlinked width/height edit. So when the shape is circle we force the
-        // height to match the width, guaranteeing an actual round circle. Users
-        // who genuinely want an oval can use Square with a 50% corner radius.
+        // Height only gets force-matched to width for a CIRCLE while dimensions
+        // are still LOCKED (the normal/default state) -- that's what keeps a
+        // circle round if a template or an accidental edit sneaks in an unequal
+        // value nobody meant. Unlocking dimensions is a deliberate choice to
+        // size width/height independently, and for a circle that's exactly how
+        // you get an oval -- forcing h=w even after unlocking defeated that
+        // entirely (unlock, raise the height, and it silently stayed a circle).
+        const isLocked = s.sizeLocked !== "false";
         const w = s.width || "90px";
-        const h = isCircle ? w : (s.height || "90px");
+        const h = (isCircle && isLocked) ? w : (s.height || "90px");
         const wNum = parseInt(w) || 90;
         const hNum = parseInt(h) || 90;
         // Sizing lives directly on the <img> itself now -- both the HTML
@@ -5879,8 +5880,13 @@ async function prepareSigForExport(sig, profile) {
         const rawSrc = s.croppedSrc || profile.photoUrl;
         if (!rawSrc) return el;
         const isCircle = s.imageShape === "circle";
+        // Same fix as the main renderer: only force h=w for a circle while
+        // dimensions are locked. Unlocked means an oval is intentional, and
+        // this crop needs to target that same oval ratio, not silently
+        // square it back off.
+        const isLocked = s.sizeLocked !== "false";
         const w = parseInt(s.width) || 90;
-        const h = isCircle ? w : (parseInt(s.height) || 90);
+        const h = (isCircle && isLocked) ? w : (parseInt(s.height) || 90);
         const cropped = await cropImageToRatio(rawSrc, w, h);
         if (!cropped || cropped === rawSrc) return el;
         return { ...el, style: { ...s, croppedSrc: cropped } };
