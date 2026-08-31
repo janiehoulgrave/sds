@@ -40,8 +40,13 @@ const ALLOWED_EMAILS = [
   "derek.disabatino@compass.com",
   "alex.mcdowell@compass.com",
   "ilyse.lipman@compass.com",
-  "ilyse.lipman@compass.com",
   "ameliaharris@compass.com",
+  "kathleen.walsh@compass.com",
+  "jessica.tan@compass.com",
+  "skylar.herrle@compass.com",
+  "alex.asmar@compass.com",
+  "alexisloren.coballes@compass.com",
+  "erika.sheridan@compass.com",
 ];
 function isEmailAllowed(email) {
   if (!ALLOWLIST_ENABLED) return true;
