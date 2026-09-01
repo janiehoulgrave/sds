@@ -15,7 +15,7 @@ const ADMIN_UID = "1idnAdK800UUzg7xW9hmH76OgH82";
 // the same list in the Firestore rules (firestore.rules) so it's actually
 // enforced, not just hidden in the UI. When you're ready to open access to all
 // @compass.com users, set ALLOWLIST_ENABLED to false here and relax the rules.
-const ALLOWLIST_ENABLED = true;
+const ALLOWLIST_ENABLED = false;
 const ALLOWED_EMAILS = [
   "janie.houlgrave@compass.com",
   "amy.peery@compass.com",
