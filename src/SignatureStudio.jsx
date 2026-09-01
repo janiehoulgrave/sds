@@ -2195,13 +2195,22 @@ function renderElementInner(el, profile, forCanvas) {
     const sizeNum = parseInt(size) || 60;
     const cells = Array.from({length: count}).map((_, i) => {
       const src = s[`badge_${i}`] || "";
+      const link = s[`badgeLink_${i}`] || "";
       // Outlook has zero support for flexbox/gap/justify-content, so spacing
       // between badges is applied per-badge via margin-right instead of a
       // container gap, and alignment uses text-align on the container (which
       // works with these inline-block children in every email client).
       const mr = i < count-1 ? `margin-right:${gap};` : "";
       if (src) {
-        return `<img src="${src}" width="${sizeNum}" height="${sizeNum}" style="width:${size};height:${size};object-fit:contain;display:inline-block;${mr}" />`;
+        const img = `<img src="${src}" width="${sizeNum}" height="${sizeNum}" style="width:${size};height:${size};object-fit:contain;display:inline-block;${link?"":mr}" />`;
+        // Each badge can link out on its own (e.g. to a certification page or
+        // a Compass program's landing page) independent of any other element
+        // on the signature. The margin-right for spacing moves onto the <a>
+        // itself when a link is set, since it's now the actual inline-block
+        // element sitting in the row -- leaving it on the <img> inside would
+        // just collapse to zero-width spacing between the anchors.
+        if (link) return `<a href="${ensureHref(link)}" target="_blank" style="display:inline-block;text-decoration:none;${mr}">${img}</a>`;
+        return img;
       }
       return `<div style="width:${size};height:${size};border:1.5px dashed #d1d5db;border-radius:6px;display:inline-block;text-align:center;line-height:${size};font-size:9px;color:#9ca3af;font-family:sans-serif;${mr}">Badge ${i+1}</div>`;
     });
@@ -6681,6 +6690,11 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
   const [pendingBadgeSlot, setPendingBadgeSlot] = useState(null); // {elId, index}
   const [draggingBadgeIdx, setDraggingBadgeIdx] = useState(null);
   const [cropModalOpen, setCropModalOpen] = useState(false);
+  // Which badge slot (by index) is currently open in the crop modal, or
+  // null when none is. Separate from cropModalOpen (which is for the
+  // single-image Photo/Logo/Image crop flow) since a badges element has
+  // several independently-croppable images, not just one.
+  const [croppingBadgeIdx, setCroppingBadgeIdx] = useState(null);
   // Selecting an image element auto-switches the sidebar to the Media tab
   // (so you can immediately swap the image). Without tracking WHY it's on
   // Media, though, it stayed there even after deselecting or picking a
@@ -6918,7 +6932,10 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
 
   function handleMediaClick(url) {
     if (pendingBadgeSlot) {
-      onUpdateElStyle(`badge_${pendingBadgeSlot.index}`, url);
+      // Stash the pristine picked image as the "original" alongside the
+      // displayed one -- cropping always reopens from this, never from a
+      // previous crop result, so re-cropping never compounds.
+      onUpdateElStyleMulti({ [`badge_${pendingBadgeSlot.index}`]: url, [`badgeOriginal_${pendingBadgeSlot.index}`]: url });
       setPendingBadgeSlot(null);
       setEditorTab("blocks");
       return;
@@ -8158,6 +8175,11 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
                           const fromIdx = parseInt(e.dataTransfer.getData("badge-drag-index"));
                           if (isNaN(fromIdx) || fromIdx === i) return;
                           onSwapElStyleKeys(selectedEl.id, `badge_${fromIdx}`, `badge_${i}`);
+                          // Each badge's link travels with its image on
+                          // reorder -- without this, dragging badge images
+                          // around left every link pointing at whatever
+                          // badge USED to be in that slot.
+                          onSwapElStyleKeys(selectedEl.id, `badgeLink_${fromIdx}`, `badgeLink_${i}`);
                           setDraggingBadgeIdx(null);
                         }}
                         style={{ opacity: isDragging?0.4:1, outline: isDropTarget?"2px dashed #0051d5":"none", outlineOffset:2, borderRadius:6, transition:"opacity 0.1s", position:"relative" }}>
@@ -8186,7 +8208,7 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
                           <input type="file" accept="image/*" style={{ display:"none" }}
                             onChange={e=>{
                               const f=e.target.files?.[0]; if(!f) return;
-                              handleImageFile(f, (dataUrl) => { onUpdateElStyle(`badge_${i}`, dataUrl); onAddMedia(dataUrl, f.name); }, 140, {png:true}, auth);
+                              handleImageFile(f, (dataUrl) => { onUpdateElStyleMulti({ [`badge_${i}`]: dataUrl, [`badgeOriginal_${i}`]: dataUrl }); onAddMedia(dataUrl, f.name); }, 140, {png:true}, auth);
                             }} />
                           <div style={{ fontSize:15, color:"#0051d5", textAlign:"center", marginTop:2, cursor:"pointer" }}
                             onClick={e=>{ e.preventDefault(); e.stopPropagation(); setPendingBadgeSlot({elId: selectedEl.id, index: i}); setEditorTab("media"); }}>
@@ -8194,10 +8216,23 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
                           </div>
                         </label>
                         {src && (
-                          <button onClick={()=>onUpdateElStyle(`badge_${i}`,"")}
-                            style={{ width:"100%", fontSize:15, color:"#ef4444", background:"none", border:"none", cursor:"pointer", fontFamily:"inherit", marginTop:2 }}>
-                            Remove
-                          </button>
+                          <>
+                            <input type="text" placeholder="Link URL (optional)"
+                              value={selectedEl.style?.[`badgeLink_${i}`] || ""}
+                              onChange={e=>onUpdateElStyle(`badgeLink_${i}`, e.target.value)}
+                              onClick={e=>e.stopPropagation()}
+                              style={{ width:"100%", fontSize:13, border:"1px solid #e5e7eb", borderRadius:5, padding:"4px 6px", fontFamily:"inherit", marginTop:4, boxSizing:"border-box" }} />
+                            <div style={{ display:"flex", gap:6, marginTop:2 }}>
+                              <button onClick={e=>{ e.preventDefault(); e.stopPropagation(); setCroppingBadgeIdx(i); }}
+                                style={{ flex:1, fontSize:15, color:"#0051d5", background:"none", border:"none", cursor:"pointer", fontFamily:"inherit" }}>
+                                Crop
+                              </button>
+                              <button onClick={()=>onUpdateElStyle(`badge_${i}`,"")}
+                                style={{ flex:1, fontSize:15, color:"#ef4444", background:"none", border:"none", cursor:"pointer", fontFamily:"inherit" }}>
+                                Remove
+                              </button>
+                            </div>
+                          </>
                         )}
                       </div>
                     );
@@ -8453,6 +8488,44 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
                 onUpdateElStyleMulti({ croppedSrc: dataUrl, cropZoom:String(zoom), cropOffsetX:String(offsetX), cropOffsetY:String(offsetY) });
               }
               setCropModalOpen(false);
+            }}
+          />
+        );
+      })()}
+      {croppingBadgeIdx !== null && selectedEl && selectedEl.type==="badges" && (() => {
+        const i = croppingBadgeIdx;
+        const s = selectedEl.style || {};
+        // Always crops from the pristine original, same principle as
+        // Photo/Logo/Image above -- badgeOriginal_i is stashed the moment an
+        // image is picked for this slot and never overwritten afterward, so
+        // re-cropping re-frames the same source instead of compounding onto
+        // whatever the last crop produced. Falls back to the current
+        // (possibly already-cropped) image for any badge uploaded before
+        // this existed, since it won't have an original stashed.
+        const src = s[`badgeOriginal_${i}`] || s[`badge_${i}`];
+        if (!src) { setCroppingBadgeIdx(null); return null; }
+        // Badges render in a fixed square box (badgeSize used for both
+        // width and height) with object-fit:contain -- a 1:1 crop target
+        // matches that box, letting someone trim excess transparent margin
+        // from their badge artwork so it fills the box better.
+        return (
+          <CropModal
+            imageSrc={src}
+            aspectW={1} aspectH={1}
+            shapeRadius="0px"
+            initialZoom={parseFloat(s[`badgeCropZoom_${i}`])||1}
+            initialOffsetX={parseFloat(s[`badgeCropOffsetX_${i}`])||0}
+            initialOffsetY={parseFloat(s[`badgeCropOffsetY_${i}`])||0}
+            onCancel={()=>setCroppingBadgeIdx(null)}
+            onSave={(dataUrl, {zoom, offsetX, offsetY}) => {
+              onUpdateElStyleMulti({
+                [`badge_${i}`]: dataUrl,
+                [`badgeOriginal_${i}`]: src,
+                [`badgeCropZoom_${i}`]: String(zoom),
+                [`badgeCropOffsetX_${i}`]: String(offsetX),
+                [`badgeCropOffsetY_${i}`]: String(offsetY),
+              });
+              setCroppingBadgeIdx(null);
             }}
           />
         );
