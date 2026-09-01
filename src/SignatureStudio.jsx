@@ -5468,7 +5468,7 @@ function TemplateSaveModal({ mode, initial, onCancel, onSubmit }) {
   );
 }
 
-function CropModal({ imageSrc, aspectW, aspectH, shapeRadius, initialZoom, initialOffsetX, initialOffsetY, onCancel, onSave }) {
+function CropModal({ imageSrc, aspectW, aspectH, shapeRadius, initialZoom, initialOffsetX, initialOffsetY, fitMode, onCancel, onSave }) {
   const [zoom, setZoom] = useState(initialZoom || 1);
   const [offset, setOffset] = useState({ x: initialOffsetX||0, y: initialOffsetY||0 });
   const [imgLoaded, setImgLoaded] = useState(false);
@@ -5494,9 +5494,20 @@ function CropModal({ imageSrc, aspectW, aspectH, shapeRadius, initialZoom, initi
   function baseScale() {
     const img = imgRef.current;
     if (!img || !img.naturalWidth) return 1;
-    // "Cover" fit: scale so the image fills the viewport in both dimensions,
-    // matching how the element actually displays today (object-fit:cover).
-    return Math.max(VIEWPORT_W / img.naturalWidth, VIEWPORT_H / img.naturalHeight);
+    // "Cover" fit (the default) scales so the image fills the viewport in
+    // both dimensions, matching object-fit:cover -- right for Photo/Logo/
+    // Image, which display that way. Badges display with object-fit:contain
+    // instead (the whole image visible, not crop-filled), and often have a
+    // very different aspect ratio than the 1:1 crop frame (a wide rectangular
+    // logo, for instance) -- "cover" mode was scaling those up massively to
+    // fill the frame's shorter dimension, opening the crop already zoomed
+    // into a tiny sliver instead of showing the whole badge. "contain" mode
+    // scales the image to just fit entirely inside the frame at zoom 1, so
+    // the full image is visible by default and zooming in is an explicit
+    // choice from there, not a forced starting point.
+    return fitMode === "contain"
+      ? Math.min(VIEWPORT_W / img.naturalWidth, VIEWPORT_H / img.naturalHeight)
+      : Math.max(VIEWPORT_W / img.naturalWidth, VIEWPORT_H / img.naturalHeight);
   }
 
   function drawRect() {
@@ -8513,6 +8524,7 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
             imageSrc={src}
             aspectW={1} aspectH={1}
             shapeRadius="0px"
+            fitMode="contain"
             initialZoom={parseFloat(s[`badgeCropZoom_${i}`])||1}
             initialOffsetX={parseFloat(s[`badgeCropOffsetX_${i}`])||0}
             initialOffsetY={parseFloat(s[`badgeCropOffsetY_${i}`])||0}
