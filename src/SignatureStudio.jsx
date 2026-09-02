@@ -2202,7 +2202,17 @@ function renderElementInner(el, profile, forCanvas) {
       // works with these inline-block children in every email client).
       const mr = i < count-1 ? `margin-right:${gap};` : "";
       if (src) {
-        const img = `<img src="${src}" width="${sizeNum}" height="${sizeNum}" style="width:${size};height:${size};object-fit:contain;display:inline-block;${link?"":mr}" />`;
+        // Badge Size now sets a fixed HEIGHT for every badge, not a fixed
+        // square box -- width is computed per-badge from that image's own
+        // real aspect ratio (captured at upload time), so a wide horizontal
+        // networking-group logo renders at its natural proportions next to
+        // a square certification seal instead of being squeezed/letterboxed
+        // into the same square everything used to be forced into. Falls
+        // back to 1 (square) for any badge uploaded before this existed and
+        // never got an aspect ratio stored.
+        const aspect = parseFloat(s[`badgeAspect_${i}`]) || 1;
+        const widthNum = Math.max(1, Math.round(sizeNum * aspect));
+        const img = `<img src="${src}" width="${widthNum}" height="${sizeNum}" style="width:${widthNum}px;height:${size};object-fit:contain;display:inline-block;${link?"":mr}" />`;
         // Each badge can link out on its own (e.g. to a certification page or
         // a Compass program's landing page) independent of any other element
         // on the signature. The margin-right for spacing moves onto the <a>
@@ -5824,6 +5834,22 @@ function tryExecCommandCopy(html, asPlainText) {
 // the source non-uniformly to fill the box instead of cropping it. Once the
 // source pixels already match the box's ratio, there's nothing left for a
 // client to get wrong even with zero CSS support for cropping.
+// Reads an image's natural width:height ratio -- used so a badge's box can
+// shrink/grow to match whatever shape was actually uploaded (a square
+// certification seal vs. a wide horizontal networking-group logo) instead
+// of forcing every badge into the same square box regardless of its real
+// proportions. Resolves to 1 (square) on any load failure so a badge never
+// ends up with a broken/zero-size box.
+function getImageAspect(src) {
+  return new Promise((resolve) => {
+    if (!src) { resolve(1); return; }
+    const img = new Image();
+    img.onload = () => resolve((img.naturalWidth && img.naturalHeight) ? img.naturalWidth / img.naturalHeight : 1);
+    img.onerror = () => resolve(1);
+    img.src = src;
+  });
+}
+
 function cropImageToRatio(src, targetW, targetH) {
   return new Promise((resolve) => {
     if (!src || !targetW || !targetH) { resolve(src); return; }
@@ -6941,12 +6967,18 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
     e.target.value = "";
   }
 
-  function handleMediaClick(url) {
+  async function handleMediaClick(url) {
     if (pendingBadgeSlot) {
+      const idx = pendingBadgeSlot.index;
       // Stash the pristine picked image as the "original" alongside the
       // displayed one -- cropping always reopens from this, never from a
-      // previous crop result, so re-cropping never compounds.
-      onUpdateElStyleMulti({ [`badge_${pendingBadgeSlot.index}`]: url, [`badgeOriginal_${pendingBadgeSlot.index}`]: url });
+      // previous crop result, so re-cropping never compounds. badgeAspect
+      // is what lets this badge's box shrink/grow to its own real shape
+      // (a wide networking-group logo, say) instead of every badge being
+      // forced into the same square regardless of what was actually
+      // uploaded -- see the "badges" render case for how it's used.
+      const aspect = await getImageAspect(url);
+      onUpdateElStyleMulti({ [`badge_${idx}`]: url, [`badgeOriginal_${idx}`]: url, [`badgeAspect_${idx}`]: String(aspect) });
       setPendingBadgeSlot(null);
       setEditorTab("blocks");
       return;
@@ -8185,12 +8217,14 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
                           e.preventDefault(); e.stopPropagation();
                           const fromIdx = parseInt(e.dataTransfer.getData("badge-drag-index"));
                           if (isNaN(fromIdx) || fromIdx === i) return;
-                          onSwapElStyleKeys(selectedEl.id, `badge_${fromIdx}`, `badge_${i}`);
-                          // Each badge's link travels with its image on
+                          // Every per-badge field travels with its image on
                           // reorder -- without this, dragging badge images
-                          // around left every link pointing at whatever
-                          // badge USED to be in that slot.
-                          onSwapElStyleKeys(selectedEl.id, `badgeLink_${fromIdx}`, `badgeLink_${i}`);
+                          // around left the link, aspect ratio, and crop
+                          // data all pointing at whatever badge USED to be
+                          // in that slot instead of following the image.
+                          ["badge", "badgeLink", "badgeOriginal", "badgeAspect", "badgeCropZoom", "badgeCropOffsetX", "badgeCropOffsetY"].forEach(key => {
+                            onSwapElStyleKeys(selectedEl.id, `${key}_${fromIdx}`, `${key}_${i}`);
+                          });
                           setDraggingBadgeIdx(null);
                         }}
                         style={{ opacity: isDragging?0.4:1, outline: isDropTarget?"2px dashed #0051d5":"none", outlineOffset:2, borderRadius:6, transition:"opacity 0.1s", position:"relative" }}>
@@ -8219,7 +8253,11 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
                           <input type="file" accept="image/*" style={{ display:"none" }}
                             onChange={e=>{
                               const f=e.target.files?.[0]; if(!f) return;
-                              handleImageFile(f, (dataUrl) => { onUpdateElStyleMulti({ [`badge_${i}`]: dataUrl, [`badgeOriginal_${i}`]: dataUrl }); onAddMedia(dataUrl, f.name); }, 140, {png:true}, auth);
+                              handleImageFile(f, async (dataUrl) => {
+                                const aspect = await getImageAspect(dataUrl);
+                                onUpdateElStyleMulti({ [`badge_${i}`]: dataUrl, [`badgeOriginal_${i}`]: dataUrl, [`badgeAspect_${i}`]: String(aspect) });
+                                onAddMedia(dataUrl, f.name);
+                              }, 140, {png:true}, auth);
                             }} />
                           <div style={{ fontSize:15, color:"#0051d5", textAlign:"center", marginTop:2, cursor:"pointer" }}
                             onClick={e=>{ e.preventDefault(); e.stopPropagation(); setPendingBadgeSlot({elId: selectedEl.id, index: i}); setEditorTab("media"); }}>
@@ -8536,6 +8574,10 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
                 [`badgeCropZoom_${i}`]: String(zoom),
                 [`badgeCropOffsetX_${i}`]: String(offsetX),
                 [`badgeCropOffsetY_${i}`]: String(offsetY),
+                // The crop frame is always 1:1, so whatever comes out of it
+                // is square -- resets this badge's aspect back to square
+                // even if the ORIGINAL upload was a wide/non-square logo.
+                [`badgeAspect_${i}`]: "1",
               });
               setCroppingBadgeIdx(null);
             }}
