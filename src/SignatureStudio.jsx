@@ -2202,27 +2202,39 @@ function renderElementInner(el, profile, forCanvas) {
       // works with these inline-block children in every email client).
       const mr = i < count-1 ? `margin-right:${gap};` : "";
       if (src) {
-        // Badge Size now sets a fixed HEIGHT for every badge, not a fixed
-        // square box -- width is computed per-badge from that image's own
-        // real aspect ratio (captured at upload time), so a wide horizontal
-        // networking-group logo renders at its natural proportions next to
-        // a square certification seal instead of being squeezed/letterboxed
-        // into the same square everything used to be forced into. Falls
-        // back to 1 (square) for any badge uploaded before this existed and
-        // never got an aspect ratio stored.
+        // Badge Size sets a fixed WIDTH slot for every badge -- height is
+        // computed per-badge from that image's own real aspect ratio
+        // (captured at upload time), so a wide horizontal networking-group
+        // logo renders at its natural proportions next to a square
+        // certification seal, instead of being squeezed/letterboxed into
+        // the same square everything used to be forced into.
+        //
+        // This used to be the other way around (fixed HEIGHT, computed
+        // width) -- reasonable in isolation, but it meant a badge with an
+        // elongated aspect ratio (a stretched-out wordmark logo, say)
+        // computed a huge width to hit that fixed height, blew past the
+        // available row width, and wrapped onto its own line instead of
+        // sitting in the row with everything else. Fixing the WIDTH instead
+        // guarantees every badge always fits the row it's laid out for
+        // (count x badgeSize + gaps, same total either way) -- it's the
+        // row's HEIGHT that varies per badge now, shrinking to whatever
+        // that image's own proportions need at that fixed width, rather
+        // than the row's WIDTH varying and risking overflow. Falls back to
+        // 1 (square) for any badge uploaded before this existed and never
+        // got an aspect ratio stored.
         const aspect = parseFloat(s[`badgeAspect_${i}`]) || 1;
-        const widthNum = Math.max(1, Math.round(sizeNum * aspect));
-        const img = `<img src="${src}" width="${widthNum}" height="${sizeNum}" style="width:${widthNum}px;height:${size};object-fit:contain;display:inline-block;${link?"":mr}" />`;
+        const heightNum = Math.max(1, Math.round(sizeNum / aspect));
+        const img = `<img src="${src}" width="${sizeNum}" height="${heightNum}" style="width:${size};height:${heightNum}px;object-fit:contain;display:inline-block;vertical-align:middle;${link?"":mr}" />`;
         // Each badge can link out on its own (e.g. to a certification page or
         // a Compass program's landing page) independent of any other element
         // on the signature. The margin-right for spacing moves onto the <a>
         // itself when a link is set, since it's now the actual inline-block
         // element sitting in the row -- leaving it on the <img> inside would
         // just collapse to zero-width spacing between the anchors.
-        if (link) return `<a href="${ensureHref(link)}" target="_blank" style="display:inline-block;text-decoration:none;${mr}">${img}</a>`;
+        if (link) return `<a href="${ensureHref(link)}" target="_blank" style="display:inline-block;vertical-align:middle;text-decoration:none;${mr}">${img}</a>`;
         return img;
       }
-      return `<div style="width:${size};height:${size};border:1.5px dashed #d1d5db;border-radius:6px;display:inline-block;text-align:center;line-height:${size};font-size:9px;color:#9ca3af;font-family:sans-serif;${mr}">Badge ${i+1}</div>`;
+      return `<div style="width:${size};height:${size};border:1.5px dashed #d1d5db;border-radius:6px;display:inline-block;vertical-align:middle;text-align:center;line-height:${size};font-size:9px;color:#9ca3af;font-family:sans-serif;${mr}">Badge ${i+1}</div>`;
     });
     const align = s.textAlign || "left";
     return `<div style="text-align:${align};margin-top:0;margin-bottom:4px;mso-margin-top-alt:0;mso-margin-bottom-alt:4px;">${cells.join("")}</div>`;
@@ -8223,7 +8235,7 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
                 </div>
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:12 }}>
                   <div>
-                    <span style={propLabel}>Badge Size</span>
+                    <span style={propLabel}>Badge Width</span>
                     <DimensionInput style={inputStyle} value={selectedEl.style?.badgeSize||"60px"} onChange={v=>onUpdateElStyle("badgeSize",v)} />
                   </div>
                   <div>
