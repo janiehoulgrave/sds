@@ -3665,6 +3665,52 @@ export default function App() {
     setActiveSig(updated);
   }
 
+  // Badges made before the per-badge aspect-ratio feature existed have no
+  // badgeAspect_i stored, so they were still rendering forced-square (with
+  // padding/letterboxing eating into their box) even after that fix shipped
+  // -- the fix only ever ran at upload time, and re-uploading isn't
+  // something an existing design's owner would think to do just to pick up
+  // a bug fix. This silently measures and backfills any missing aspect
+  // ratios once per opened signature, so already-built badges rows pick up
+  // their real proportions without anyone having to redo anything. Runs via
+  // setActiveSig directly (not pushSig) since it's a background correction,
+  // not a user edit -- it shouldn't show up as a step in undo history.
+  const backfilledSigId = useRef(null);
+  useEffect(() => {
+    if (!activeSig || !activeSig.id) return;
+    if (backfilledSigId.current === activeSig.id) return;
+    backfilledSigId.current = activeSig.id;
+    const sigIdAtStart = activeSig.id;
+    (async () => {
+      let changed = false;
+      const rows = await Promise.all(activeSig.rows.map(async row => {
+        const columns = await Promise.all(row.columns.map(async col => {
+          const elements = await Promise.all(col.elements.map(async el => {
+            if (el.type !== "badges") return el;
+            const s = el.style || {};
+            const count = parseInt(s.badgeCount) || 4;
+            const styleUpdates = {};
+            for (let i = 0; i < count; i++) {
+              const src = s[`badge_${i}`];
+              if (src && !s[`badgeAspect_${i}`]) {
+                styleUpdates[`badgeAspect_${i}`] = String(await getImageAspect(src));
+                changed = true;
+              }
+            }
+            return Object.keys(styleUpdates).length ? { ...el, style: { ...s, ...styleUpdates } } : el;
+          }));
+          return { ...col, elements };
+        }));
+        return { ...row, columns };
+      }));
+      // Bail if the person navigated to a different signature while the
+      // aspect-ratio reads (async image loads) were still in flight -- an
+      // update matching this stale sig id could otherwise clobber whatever
+      // they're actually looking at now.
+      if (changed) setActiveSig(prev => (prev && prev.id === sigIdAtStart) ? { ...prev, rows } : prev);
+    })();
+  }, [activeSig?.id]);
+
   function undo() {
     if (history.length === 0) return;
     const prev = history[history.length - 1];
@@ -8553,14 +8599,19 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
         // this existed, since it won't have an original stashed.
         const src = s[`badgeOriginal_${i}`] || s[`badge_${i}`];
         if (!src) { setCroppingBadgeIdx(null); return null; }
-        // Badges render in a fixed square box (badgeSize used for both
-        // width and height) with object-fit:contain -- a 1:1 crop target
-        // matches that box, letting someone trim excess transparent margin
-        // from their badge artwork so it fills the box better.
+        // Crop frame now matches THIS badge's own natural aspect ratio
+        // (from the backfill/upload-time measurement above) instead of a
+        // hardcoded 1:1 -- a wide horizontal logo gets a wide crop frame,
+        // so cropping is about trimming excess margin/whitespace from that
+        // shape, not forcing every badge into a square regardless of what
+        // was actually uploaded. Falls back to 1 (square) only if no aspect
+        // is available yet (the backfill effect above hasn't resolved, or
+        // the image failed to load).
+        const cropAspect = parseFloat(s[`badgeAspect_${i}`]) || 1;
         return (
           <CropModal
             imageSrc={src}
-            aspectW={1} aspectH={1}
+            aspectW={cropAspect} aspectH={1}
             shapeRadius="0px"
             fitMode="contain"
             initialZoom={parseFloat(s[`badgeCropZoom_${i}`])||1}
@@ -8574,10 +8625,10 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
                 [`badgeCropZoom_${i}`]: String(zoom),
                 [`badgeCropOffsetX_${i}`]: String(offsetX),
                 [`badgeCropOffsetY_${i}`]: String(offsetY),
-                // The crop frame is always 1:1, so whatever comes out of it
-                // is square -- resets this badge's aspect back to square
-                // even if the ORIGINAL upload was a wide/non-square logo.
-                [`badgeAspect_${i}`]: "1",
+                // The crop frame matches cropAspect (this badge's own real
+                // shape), so the result keeps that same ratio rather than
+                // always coming out square.
+                [`badgeAspect_${i}`]: String(cropAspect),
               });
               setCroppingBadgeIdx(null);
             }}
