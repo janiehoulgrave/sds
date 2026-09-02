@@ -8348,9 +8348,25 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
                           <div style={{ fontSize:15, color:src?"#0051d5":"#9ca3af", fontWeight:600, textAlign:"center" }}>
                             {src ? `Badge ${i+1}` : `+ Badge ${i+1}`}
                           </div>
-                          <input type="file" accept="image/*" style={{ display:"none" }}
+                          <input type="file" accept="image/png,image/jpeg" style={{ display:"none" }}
                             onChange={e=>{
                               const f=e.target.files?.[0]; if(!f) return;
+                              // Badges are PNG/JPG only -- SVG isn't just a
+                              // source of the aspect-ratio bugs fixed above,
+                              // Outlook doesn't render SVG images in email
+                              // AT ALL, so an SVG badge would look fine here
+                              // in the canvas and then simply not show up
+                              // for a big chunk of recipients. accept=
+                              // above steers most people away from picking
+                              // one in the file dialog, but doesn't stop
+                              // someone from choosing "All Files" and
+                              // selecting one anyway, so it's still checked
+                              // here.
+                              if (/svg/i.test(f.type) || /\.svg$/i.test(f.name)) {
+                                alert("SVG files aren't supported for badges -- please upload a PNG or JPG instead. (Outlook and some other email clients can't display SVG images at all.)");
+                                e.target.value = "";
+                                return;
+                              }
                               handleImageFile(f, async (dataUrl) => {
                                 const aspect = await getImageAspect(dataUrl);
                                 onUpdateElStyleMulti({ [`badge_${i}`]: dataUrl, [`badgeOriginal_${i}`]: dataUrl, [`badgeAspect_${i}`]: String(aspect), [`badgeOriginalAspect_${i}`]: String(aspect) });
