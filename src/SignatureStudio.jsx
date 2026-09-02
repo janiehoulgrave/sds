@@ -3704,8 +3704,18 @@ export default function App() {
             const styleUpdates = {};
             for (let i = 0; i < count; i++) {
               const src = s[`badge_${i}`];
-              if (src && !s[`badgeAspect_${i}`]) {
+              if (!src) continue;
+              if (!s[`badgeAspect_${i}`]) {
                 styleUpdates[`badgeAspect_${i}`] = String(await getImageAspect(src));
+                changed = true;
+              }
+              // Separate from badgeAspect_i on purpose -- this one is never
+              // meant to change again once set, so the crop tool always has
+              // the TRUE original shape to build its frame from, regardless
+              // of whatever badgeAspect_i has drifted to after a crop.
+              if (!s[`badgeOriginalAspect_${i}`]) {
+                const origSrc = s[`badgeOriginal_${i}`] || src;
+                styleUpdates[`badgeOriginalAspect_${i}`] = String(await getImageAspect(origSrc));
                 changed = true;
               }
             }
@@ -5901,6 +5911,36 @@ function tryExecCommandCopy(html, asPlainText) {
 function getImageAspect(src) {
   return new Promise((resolve) => {
     if (!src) { resolve(1); return; }
+    // SVGs need special handling: many real-world logo SVGs (Compass's own
+    // included) declare a viewBox but no explicit width/height on the root
+    // <svg>. Per spec that's still a valid, sizeable image, but not every
+    // browser derives natural size from the viewBox correctly -- some fall
+    // back to a generic 300x150 default box instead, which silently reports
+    // a totally wrong aspect ratio (a wide ~7:1 logo measuring as ~2:1).
+    // Parsing the SVG's own viewBox/width/height attributes directly
+    // sidesteps that unreliability entirely rather than trusting whatever
+    // the browser decided naturalWidth/naturalHeight should be.
+    if (/^data:image\/svg\+xml/i.test(src)) {
+      try {
+        const isBase64 = /;base64,/.test(src);
+        const raw = src.split(",")[1] || "";
+        const svgText = isBase64 ? atob(raw) : decodeURIComponent(raw);
+        const doc = new DOMParser().parseFromString(svgText, "image/svg+xml");
+        const svgEl = doc.documentElement;
+        let w, h;
+        const vb = svgEl.getAttribute("viewBox");
+        if (vb) {
+          const parts = vb.trim().split(/[\s,]+/).map(Number);
+          if (parts.length === 4 && parts[2] > 0 && parts[3] > 0) { w = parts[2]; h = parts[3]; }
+        }
+        if (!w || !h) {
+          const wAttr = parseFloat(svgEl.getAttribute("width"));
+          const hAttr = parseFloat(svgEl.getAttribute("height"));
+          if (wAttr > 0 && hAttr > 0) { w = wAttr; h = hAttr; }
+        }
+        if (w && h) { resolve(w / h); return; }
+      } catch (e) { /* fall through to the Image()-based approach below */ }
+    }
     const img = new Image();
     img.onload = () => resolve((img.naturalWidth && img.naturalHeight) ? img.naturalWidth / img.naturalHeight : 1);
     img.onerror = () => resolve(1);
@@ -7036,7 +7076,7 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
       // forced into the same square regardless of what was actually
       // uploaded -- see the "badges" render case for how it's used.
       const aspect = await getImageAspect(url);
-      onUpdateElStyleMulti({ [`badge_${idx}`]: url, [`badgeOriginal_${idx}`]: url, [`badgeAspect_${idx}`]: String(aspect) });
+      onUpdateElStyleMulti({ [`badge_${idx}`]: url, [`badgeOriginal_${idx}`]: url, [`badgeAspect_${idx}`]: String(aspect), [`badgeOriginalAspect_${idx}`]: String(aspect) });
       setPendingBadgeSlot(null);
       setEditorTab("blocks");
       return;
@@ -8280,7 +8320,7 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
                           // around left the link, aspect ratio, and crop
                           // data all pointing at whatever badge USED to be
                           // in that slot instead of following the image.
-                          ["badge", "badgeLink", "badgeOriginal", "badgeAspect", "badgeCropZoom", "badgeCropOffsetX", "badgeCropOffsetY"].forEach(key => {
+                          ["badge", "badgeLink", "badgeOriginal", "badgeAspect", "badgeOriginalAspect", "badgeCropZoom", "badgeCropOffsetX", "badgeCropOffsetY"].forEach(key => {
                             onSwapElStyleKeys(selectedEl.id, `${key}_${fromIdx}`, `${key}_${i}`);
                           });
                           setDraggingBadgeIdx(null);
@@ -8313,7 +8353,7 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
                               const f=e.target.files?.[0]; if(!f) return;
                               handleImageFile(f, async (dataUrl) => {
                                 const aspect = await getImageAspect(dataUrl);
-                                onUpdateElStyleMulti({ [`badge_${i}`]: dataUrl, [`badgeOriginal_${i}`]: dataUrl, [`badgeAspect_${i}`]: String(aspect) });
+                                onUpdateElStyleMulti({ [`badge_${i}`]: dataUrl, [`badgeOriginal_${i}`]: dataUrl, [`badgeAspect_${i}`]: String(aspect), [`badgeOriginalAspect_${i}`]: String(aspect) });
                                 onAddMedia(dataUrl, f.name);
                               }, 140, {png:true}, auth);
                             }} />
@@ -8611,15 +8651,18 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
         // this existed, since it won't have an original stashed.
         const src = s[`badgeOriginal_${i}`] || s[`badge_${i}`];
         if (!src) { setCroppingBadgeIdx(null); return null; }
-        // Crop frame now matches THIS badge's own natural aspect ratio
-        // (from the backfill/upload-time measurement above) instead of a
-        // hardcoded 1:1 -- a wide horizontal logo gets a wide crop frame,
-        // so cropping is about trimming excess margin/whitespace from that
-        // shape, not forcing every badge into a square regardless of what
-        // was actually uploaded. Falls back to 1 (square) only if no aspect
-        // is available yet (the backfill effect above hasn't resolved, or
-        // the image failed to load).
-        const cropAspect = parseFloat(s[`badgeAspect_${i}`]) || 1;
+        // Crop frame matches this badge's ORIGINAL aspect ratio specifically
+        // (badgeOriginalAspect_i, stashed once at upload and never touched
+        // again) -- NOT badgeAspect_i, which tracks whatever the CURRENT
+        // active image's shape is and gets overwritten every time a crop is
+        // saved. Using the current value here was the actual bug: crop the
+        // image once (badgeAspect_i becomes that crop's own ratio, e.g. a
+        // prior square crop), reopen Crop later, and the frame would use
+        // that stale ratio while still showing the true wide original
+        // inside it -- original content, wrong-shaped frame around it.
+        // Falls back to badgeAspect_i, then 1, only for a badge that
+        // predates this original/current split entirely.
+        const cropAspect = parseFloat(s[`badgeOriginalAspect_${i}`]) || parseFloat(s[`badgeAspect_${i}`]) || 1;
         return (
           <CropModal
             imageSrc={src}
