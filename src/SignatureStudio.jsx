@@ -3632,13 +3632,28 @@ export default function App() {
       return window.location.origin + window.location.pathname + "#s=" + shortId;
     } catch(e) {
       console.warn("Could not create share link:", e);
+      // Firestore has a hard 1 MiB limit per document. Signatures embed
+      // photos/badges/banners as base64 image data directly, and this write
+      // now bundles the whole signature AND the whole profile (which can
+      // itself carry a base64 photo) into one document -- a design with a
+      // few images can realistically exceed that limit. Surfacing that
+      // specific reason (rather than a generic failure) is what actually
+      // makes this self-diagnosing instead of a mystery toast.
+      const msg = (e && e.message) || "";
+      if (e?.code === "resource-exhausted" || /longer than|exceeds the maximum|1048487|invalid-argument/i.test(msg)) {
+        return { error: "This design has too many/too-large images to share as a link. Try removing a banner, badge, or GIF and generating the link again." };
+      }
       return null;
     }
   }
 
   async function copyShareLink(sig) {
-    const url = await generateShareLink(sig);
-    if (!url) { showToast("Could not generate link."); return; }
+    const result = await generateShareLink(sig);
+    const url = typeof result === "string" ? result : null;
+    if (!url) {
+      showToast((result && result.error) || "Could not generate link.");
+      return;
+    }
     navigator.clipboard?.writeText(url).then(() => {
       showToast("Share link copied! Anyone with this link can import a copy.");
     }).catch(() => showToast("Could not copy link."));
