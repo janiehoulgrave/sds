@@ -2316,7 +2316,22 @@ function renderElementInner(el, profile, forCanvas) {
         const photoResponsiveStyle = forCanvas
           ? `max-width:100%;height:auto;aspect-ratio:${wNum}/${hNum};`
           : `height:${h};`;
-        return `<div style="display:block;line-height:0;font-size:0;mso-margin-top-alt:0;mso-margin-bottom-alt:0;"><img src="${src}" width="${wNum}" height="${hNum}" style="width:${w};${photoResponsiveStyle}box-sizing:border-box;border-radius:${br};${bdr}object-fit:${s.objectFit||"cover"};display:block;" referrerpolicy="no-referrer" /></div>`;
+        // The wrapping <div> now also carries a hard pixel width/height plus
+        // overflow:hidden, for the EXPORT path only -- discovered this is
+        // necessary after finding that Gmail's FORWARD action (a different,
+        // more aggressive pass than the Settings-save one that only dropped
+        // object-fit) strips EVERY sizing attribute off the <img> itself:
+        // no width, no height, not even a style attribute survives, and
+        // Gmail re-hosts the image through its own fimg URL in the process.
+        // With nothing left on the img, the browser renders it at full
+        // native pixel size -- and since this is exported at 2x resolution
+        // for retina sharpness, that's often much bigger than intended,
+        // which is what caused the overlapping/jumbled layout. A sibling
+        // <img> losing its own attributes doesn't touch this wrapping div's
+        // attributes, so a hard size + overflow:hidden here gives the image
+        // somewhere to get physically clipped even after Gmail guts it.
+        const containerStyle = forCanvas ? "" : `width:${w};height:${h};overflow:hidden;`;
+        return `<div style="display:block;line-height:0;font-size:0;${containerStyle}mso-margin-top-alt:0;mso-margin-bottom-alt:0;"><img src="${src}" width="${wNum}" height="${hNum}" style="width:${w};${photoResponsiveStyle}box-sizing:border-box;border-radius:${br};${bdr}object-fit:${s.objectFit||"cover"};display:block;" referrerpolicy="no-referrer" /></div>`;
       }
       case "logo": {
         const src = s.croppedSrc || profile.logoUrl || "";
