@@ -7582,13 +7582,19 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
             current percentage makes that scaling visible instead of silent,
             and this button forces genuine 100% on demand -- the one scale
             that's guaranteed to match the real exported/shared signature
-            pixel-for-pixel, without needing to leave the editor to check. */}
-        <div onClick={e=>e.stopPropagation()} style={{ position:"absolute", top:16, right:20, zIndex:20, display:"flex", alignItems:"center", gap:8, background:"#fff", border:"1px solid #e5e7eb", borderRadius:8, padding:"4px 6px", boxShadow:"0 1px 4px rgba(0,0,0,0.08)" }}>
+            pixel-for-pixel, without needing to leave the editor to check.
+            Anchored to the BOTTOM right, not top -- top collided with the
+            existing header bar's own buttons (Save/Copy to Clipboard),
+            which already occupy that same top-right corner of this wrapper. */}
+        <div onClick={e=>e.stopPropagation()} style={{ position:"absolute", bottom:16, right:20, zIndex:20, display:"flex", alignItems:"center", gap:8, background:"#fff", border:"1px solid #e5e7eb", borderRadius:8, padding:"4px 6px", boxShadow:"0 1px 4px rgba(0,0,0,0.08)" }}>
           <span style={{ fontSize:13, color:"#6b7280", fontWeight:600, minWidth:38, textAlign:"right" }}>{Math.round(canvasScale*100)}%</span>
+          {/* Label is the ACTION this performs (the mode it switches TO),
+              not the current mode -- showing "Fit to Screen" while already
+              in fit-to-screen mode reads as a state label, not a button. */}
           <button onClick={()=>setActualSizeLocked(a=>!a)}
             style={{ display:"flex", alignItems:"center", gap:5, padding:"5px 10px", borderRadius:6, border: actualSizeLocked ? "1.5px solid #0051d5" : "1px solid #e5e7eb", background: actualSizeLocked ? "#eff6ff" : "#f9fafb", color: actualSizeLocked ? "#0051d5" : "#374151", fontSize:13, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
             <Icon name="fit_screen" size={14} color={actualSizeLocked ? "#0051d5" : "#6b7280"} />
-            {actualSizeLocked ? "Actual Size" : "Fit to Screen"}
+            {actualSizeLocked ? "Fit to Screen" : "Actual Size"}
           </button>
         </div>
 
