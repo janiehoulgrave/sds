@@ -6924,6 +6924,24 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
   // capped at 1.38 so nothing changes on screens that already have room.
   const CANVAS_MAX_SCALE = 1.38;
   const [canvasScale, setCanvasScale] = useState(CANVAS_MAX_SCALE);
+  // The canvas auto-scales to fit whatever screen space is available -- up
+  // to 138% on a roomy screen, down to 50% on a cramped one. That's a
+  // deliberate, useful feature for making the most of the available window,
+  // but it means the canvas is essentially NEVER guaranteed to be showing
+  // true, real-world size -- a stored value like a 23px padding can look
+  // bigger or smaller on screen than it actually is, with no visual cue
+  // that anything's been scaled at all. That's a genuine WYSIWYG gap, not
+  // something to just account for mentally: two people on two different
+  // monitors (or the same person resizing their browser) can look at the
+  // identical design and see the same padding rendering at visibly
+  // different sizes on screen, none of which match what a recipient's
+  // email client will actually show (email clients render signatures at
+  // their literal, unscaled pixel dimensions always). actualSizeLocked
+  // lets someone force the canvas to genuine 100% on demand -- the one
+  // scale that's guaranteed to match the real exported/shared result
+  // pixel-for-pixel -- instead of only ever being able to verify true
+  // spacing by leaving the editor to check the share-link preview.
+  const [actualSizeLocked, setActualSizeLocked] = useState(false);
   useEffect(() => {
     const el = canvasWrapperRef.current;
     if (!el) return;
@@ -6932,16 +6950,18 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
     // that before dividing by 600 to get the scale that just fits.
     const RESERVED_WIDTH = 44 + 40;
     function recalc() {
+      if (actualSizeLocked) { setCanvasScale(1); return; }
       const available = el.clientWidth - RESERVED_WIDTH;
       if (available <= 0) return;
       const fitScale = available / 600;
       setCanvasScale(Math.min(CANVAS_MAX_SCALE, Math.max(0.5, fitScale)));
     }
     recalc();
+    if (actualSizeLocked) return; // no need to watch resizes while locked at 1
     const ro = new ResizeObserver(recalc);
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [actualSizeLocked]);
 
   // Drag-and-drop from sidebar state
   const [dragOver, setDragOver] = useState(null); // {rowId, colId, elIdx}
@@ -7555,6 +7575,22 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
       {/* -- Canvas -- */}
       <div ref={canvasWrapperRef} onClick={()=>{ setSelectedElId(null); setSelectedRowId(null); setSelectedColId(null); }}
         style={{ flex:1, background:"#E8E8E8", overflowY:"auto", padding:"16px 20px", display:"flex", flexDirection:"column", gap:12, position:"relative" }}>
+
+        {/* Zoom indicator + Actual Size toggle -- the canvas auto-scales to
+            fit the window (see canvasScale above), so what's on screen is
+            essentially never guaranteed to be true size. Showing the
+            current percentage makes that scaling visible instead of silent,
+            and this button forces genuine 100% on demand -- the one scale
+            that's guaranteed to match the real exported/shared signature
+            pixel-for-pixel, without needing to leave the editor to check. */}
+        <div onClick={e=>e.stopPropagation()} style={{ position:"absolute", top:16, right:20, zIndex:20, display:"flex", alignItems:"center", gap:8, background:"#fff", border:"1px solid #e5e7eb", borderRadius:8, padding:"4px 6px", boxShadow:"0 1px 4px rgba(0,0,0,0.08)" }}>
+          <span style={{ fontSize:13, color:"#6b7280", fontWeight:600, minWidth:38, textAlign:"right" }}>{Math.round(canvasScale*100)}%</span>
+          <button onClick={()=>setActualSizeLocked(a=>!a)}
+            style={{ display:"flex", alignItems:"center", gap:5, padding:"5px 10px", borderRadius:6, border: actualSizeLocked ? "1.5px solid #0051d5" : "1px solid #e5e7eb", background: actualSizeLocked ? "#eff6ff" : "#f9fafb", color: actualSizeLocked ? "#0051d5" : "#374151", fontSize:13, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
+            <Icon name="fit_screen" size={14} color={actualSizeLocked ? "#0051d5" : "#6b7280"} />
+            {actualSizeLocked ? "Actual Size" : "Fit to Screen"}
+          </button>
+        </div>
 
         {/* Combined header: Row 1 = actions, Row 2 = always-visible formatting bar */}
         <div onClick={e=>e.stopPropagation()} style={{ background:"#fff", borderRadius:10, border:"1px solid #e5e7eb", flexShrink:0, marginBottom:0 }}>
