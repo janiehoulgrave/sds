@@ -2776,7 +2776,16 @@ function PublicSharePreview({ shortId }) {
       // preview page happened to be in -- App() picks up the #open= hash
       // once it finishes loading this account's signatures and opens the
       // matching one directly.
-      window.location.href = window.location.origin + window.location.pathname + "#open=" + newId;
+      // Setting .href/.hash to a URL that only differs by its fragment does
+      // NOT trigger an actual page reload in browsers -- it's treated as an
+      // in-page navigation, so the already-mounted PublicSharePreview just
+      // kept rendering exactly what it had on screen, with nothing telling
+      // React the hash had changed underneath it (React has no built-in
+      // reactivity to window.location -- only state/prop changes cause a
+      // re-render). The explicit reload() below is what forces App() to
+      // actually re-mount fresh and re-evaluate the new hash.
+      window.location.hash = "open=" + newId;
+      window.location.reload();
     } catch (e) {
       console.warn("Could not save shared signature:", e);
       setSaveError(e?.code === "auth/popup-closed-by-user" ? "" : "Something went wrong saving this -- please try again.");
