@@ -2752,7 +2752,20 @@ function PublicSharePreview({ shortId }) {
       }
       const name = sig.name ? sig.name + " (shared)" : "Shared Signature";
       const newId = "sig-" + Math.random().toString(36).slice(2);
-      const imported = { ...sig, id: newId, name, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      // Freezes the shared profile's values into THIS COPY's own
+      // manualOverrides (same mechanism the Autofill-off toggle already
+      // uses), with autofillEnabled explicitly set to false. Without this,
+      // "imported" only carried the design's layout (sig) -- Smart Fields
+      // in it are profile-driven by nature, so the instant this copy got
+      // opened normally in the recipient's own account, they'd silently
+      // render from THAT account's own profile instead of staying frozen
+      // to whatever was actually shown in the preview. That's what made it
+      // look like the design "reverted" to someone else's info: it wasn't
+      // reverting, Smart Fields were just doing exactly what Smart Fields
+      // do once nothing is anchoring them to the original person's data
+      // anymore. The recipient can still flip Autofill back on later if
+      // they'd rather this design start reflecting their own profile.
+      const imported = { ...sig, id: newId, name, autofillEnabled: false, manualOverrides: { ...sharedProfile }, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
       await setDoc(doc(collection(db, "users", user.uid, "signatures"), newId), imported);
       setSavedName(name);
     } catch (e) {
@@ -3635,15 +3648,19 @@ export default function App() {
     if (!sig) return null;
     try {
       const shortId = uuid();
-      // Smart Fields (Name, Photo, Phone, Address, etc.) render from whatever
-      // `profile` is currently active on this account -- when staff builds a
-      // design "for" an agent, that agent's info lives in THIS profile
-      // object, not baked into the signature layout itself. The share link
-      // used to only save `sig`, so the recipient's preview had nothing to
-      // fill those fields with and showed blank placeholders. Snapshotting
-      // profile alongside sig here is what actually carries the finished,
-      // agent-specific design across to whoever opens the link.
-      await setDoc(doc(db, "shared", shortId), { sig, profile, createdAt: new Date().toISOString() });
+      // Smart Fields (Name, Photo, Phone, Address, etc.) render from
+      // effectiveProfile, NOT the raw account `profile` -- when Autofill My
+      // Details is off (exactly the case for a design built for someone
+      // else, like an agent), the actual live values being shown come from
+      // activeSig.manualOverrides layered on top, not from the account's
+      // own profile fields at all. This used to snapshot the raw `profile`
+      // directly, which meant a design built with Autofill off would share
+      // correctly in the live canvas but capture the WRONG, unrelated
+      // source entirely once saved -- not a stale copy of the right data,
+      // literally the wrong data source from the start. That's what made
+      // fields look scrambled/reverted on the recipient's end even though
+      // the original always looked correct to whoever built it.
+      await setDoc(doc(db, "shared", shortId), { sig, profile: effectiveProfile, createdAt: new Date().toISOString() });
       return window.location.origin + window.location.pathname + "#s=" + shortId;
     } catch(e) {
       console.warn("Could not create share link:", e);
