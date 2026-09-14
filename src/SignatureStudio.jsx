@@ -6490,7 +6490,14 @@ function LinkedDimensionPair({ propLabel, inputStyle, widthValue, heightValue, w
   }, [imageSrc]);
 
   function unitOf(v, fallback) {
-    const m = String(v || fallback || "").match(/[a-z%]+$/i);
+    const str = String(v || fallback || "");
+    // "auto" is a valid CSS value but not a unit -- the regex below matches
+    // any trailing letters, which caught "auto" as if it were one. That's
+    // what produced the literal garbled text "105auto": a computed height
+    // of 105 plus a "unit" that was actually the whole word "auto",
+    // concatenated together. Falls back to px, same as an unset value would.
+    if (/^auto$/i.test(str)) return "px";
+    const m = str.match(/[a-z%]+$/i);
     return m ? m[0] : "px";
   }
   function ratio() {
