@@ -6591,19 +6591,26 @@ function InlineEditableText({ el, profile, autofillEnabled, onChangeContent, onC
   }
 
   // What text should currently display. Four cases, in priority order:
-  //  - Autofill off + this is a Smart Field: acts exactly like a Text
-  //    element now -- reads its own el.content, falling back to that
-  //    field's normal placeholder (e.g. "Your Name") when empty, same as a
-  //    fresh Text block would show placeholder-ish content. This is what
-  //    "act as a normal text element" actually means in practice: same
-  //    storage, same fallback pattern, same edit path as isPlainText below.
+  //  - Autofill off + this is a Smart Field: acts like a Text element for
+  //    editing purposes (same el.content storage, same edit path), but
+  //    still falls back to profile[profileField] before the generic
+  //    placeholder -- profile here is effectiveProfile, which already
+  //    folds in activeSig.manualOverrides. That fallback is what makes a
+  //    freshly-copied "Make a Copy" design actually show its frozen data
+  //    immediately: that flow bakes the whole profile into
+  //    manualOverrides, not into each individual element's el.content, so
+  //    without this fallback every Smart Field showed its generic
+  //    placeholder ("Your Name") until someone happened to retype that
+  //    specific field by hand -- even though the real data was sitting
+  //    right there in profile the entire time. Once someone actually edits
+  //    a field here, el.content takes over and holds their own version.
   //  - A real Text element: unchanged, interpolate()'d el.content.
   //  - Autofill on + the combined Phone field: unchanged, auto-computed
   //    from profile.mobile/profile.phone unless manually overridden.
   //  - Autofill on + any other Smart Field: unchanged, straight from the
   //    (already autofill-aware) profile object passed in.
   const displayValue = (isPlainText && isDynamic)
-    ? (el.content || DYNAMIC_PLACEHOLDER[el.subtype] || "")
+    ? (el.content || profile[profileField] || DYNAMIC_PLACEHOLDER[el.subtype] || "")
     : isPlainText
       ? interpolate(el.content || "", profile)
       : isPhones
