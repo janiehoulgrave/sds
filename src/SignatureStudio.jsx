@@ -3521,11 +3521,19 @@ export default function App() {
     setSignatures(sigs);
     (typeof localStorage !== "undefined" && localStorage.setItem("ss_sigs", JSON.stringify(sigs)));
     const uid = auth.currentUser?.uid;
+    // Returned so Copy to Clipboard / Share Link (see copyRich/copyHtml/
+    // copyShareLink) can await this specific write finishing before they
+    // read from Firestore or hand data off elsewhere -- previously this was
+    // fire-and-forget, so clicking Copy/Share within the ~1.2s debounced-
+    // autosave window (right after the last keystroke) could beat the write
+    // to Firestore, capturing/sharing whatever was ALREADY persisted rather
+    // than the edit that was just made.
+    let writePromise = Promise.resolve();
     if (uid) {
       const sigsCol = collection(db, "users", uid, "signatures");
       // Local state is updated above for a responsive UI; Firestore syncs here.
       if (changed.length) {
-        Promise.all(changed.map(sig => setDoc(doc(sigsCol, sig.id), sig)))
+        writePromise = Promise.all(changed.map(sig => setDoc(doc(sigsCol, sig.id), sig)))
           .catch(err => console.error("Failed to save signatures to Firestore:", err));
       }
       // Deletes matter more than writes -- if a delete fails, the doc reappears
@@ -3544,6 +3552,7 @@ export default function App() {
           });
       }
     }
+    return writePromise;
   }
 
   function saveProfile(p) {
@@ -3680,6 +3689,14 @@ export default function App() {
   }
 
   async function copyShareLink(sig) {
+    // Commits any pending edits before generating the link -- without this,
+    // clicking Share Link within the ~1.2s debounced-autosave window (right
+    // after the last change) could capture whatever was already persisted
+    // to Firestore rather than the edit that was just made. This is exactly
+    // what made a shared design look like it had "reverted": the design
+    // wasn't actually reverted, the share link had just captured a moment
+    // slightly before the latest styling change was saved.
+    await saveCurrent(true);
     const result = await generateShareLink(sig);
     const url = typeof result === "string" ? result : null;
     if (!url) {
@@ -3691,13 +3708,13 @@ export default function App() {
     }).catch(() => showToast("Could not copy link."));
   }
 
-  function saveCurrent(silent) {
+  async function saveCurrent(silent) {
     if (!activeSig) return;
     const updated = { ...activeSig, updatedAt: new Date().toISOString() };
     setActiveSig(updated);
     const idx = signatures.findIndex(s => s.id === updated.id);
     const newSigs = idx >= 0 ? signatures.map(s => s.id === updated.id ? updated : s) : [updated, ...signatures];
-    saveSigs(newSigs);
+    await saveSigs(newSigs);
     setLastSavedAt(new Date());
     if (!silent) showToast("Signature saved!");
   }
@@ -4465,7 +4482,7 @@ export default function App() {
             canUndo={history.length>0} canRedo={future.length>0}
             onUpdateElStyle={updateElStyle} onUpdateElContent={updateElContent} onUpdateRowStyle={updateRowStyle}
             onUpdateName={name => setActiveSig({...activeSig, name})}
-            onSave={() => saveCurrent(false)} onNavigate={navigate} prevScreen={prevScreen} lastSavedAt={lastSavedAt} onShareLink={() => copyShareLink(activeSig)}
+            onSave={() => saveCurrent(false)} onSaveSilent={() => saveCurrent(true)} onNavigate={navigate} prevScreen={prevScreen} lastSavedAt={lastSavedAt} onShareLink={() => copyShareLink(activeSig)}
             mediaLibrary={mediaLibrary} onAddMedia={addToMediaLibrary} onUpdateProfileField={routeProfileFieldUpdate}
             adminMode={adminMode} isEditingTemplate={!!editingTemplateId} onOpenTemplateSaveModal={openTemplateSaveModal}
           />
@@ -6745,7 +6762,7 @@ function InlineEditableText({ el, profile, autofillEnabled, onChangeContent, onC
 }
 
 
-function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, setEditorTab, selectedRowId, setSelectedRowId, selectedElId, setSelectedElId, selectedRow, selectedEl, onAddRow, onAddEl, onAddBanner, onAddBadgeRow, onDeleteEl, onDeleteRow, onDuplicateRow, onDuplicateEl, onReorderRows, onMoveRowUp, onMoveRowDown, onMoveElUp, onMoveElDown, onMoveElToCol, onDeleteColumn, onAddColumn, selectedColId, setSelectedColId, onUpdateColStyle, onUpdateColWidths, onSwapElStyleKeys, onUpdateElStyleMulti, onUpdateElContentAndStyle, onUndo, onRedo, canUndo, canRedo, onUpdateElStyle, onUpdateElContent, onUpdateRowStyle, onUpdateName, onSave, onNavigate, prevScreen, lastSavedAt, onShareLink, mediaLibrary, onAddMedia, onUpdateProfileField, adminMode, isEditingTemplate, onOpenTemplateSaveModal }) {
+function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, setEditorTab, selectedRowId, setSelectedRowId, selectedElId, setSelectedElId, selectedRow, selectedEl, onAddRow, onAddEl, onAddBanner, onAddBadgeRow, onDeleteEl, onDeleteRow, onDuplicateRow, onDuplicateEl, onReorderRows, onMoveRowUp, onMoveRowDown, onMoveElUp, onMoveElDown, onMoveElToCol, onDeleteColumn, onAddColumn, selectedColId, setSelectedColId, onUpdateColStyle, onUpdateColWidths, onSwapElStyleKeys, onUpdateElStyleMulti, onUpdateElContentAndStyle, onUndo, onRedo, canUndo, canRedo, onUpdateElStyle, onUpdateElContent, onUpdateRowStyle, onUpdateName, onSave, onSaveSilent, onNavigate, prevScreen, lastSavedAt, onShareLink, mediaLibrary, onAddMedia, onUpdateProfileField, adminMode, isEditingTemplate, onOpenTemplateSaveModal }) {
   const inputStyle = { width:"100%", border:"1px solid #e5e7eb", borderRadius:6, padding:"6px 8px", fontSize:15, fontFamily:"inherit", outline:"none" };
   const propLabel = { fontSize:15, fontWeight:600, color:"#6b7280", marginBottom:4, display:"block" };
 
@@ -7054,6 +7071,12 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
   }
 
   async function copyHtml() {
+    // Commits any pending edits first -- the copy itself already reflects
+    // the live in-memory design regardless, but this keeps what's actually
+    // persisted to Firestore in sync with whatever was just copied out,
+    // rather than depending on the ~1.2s debounced autosave to catch up
+    // afterward on its own.
+    await onSaveSilent?.();
     const html = await generateHTML();
     if (tryExecCommandCopy(html, /*asPlainText*/ true)) {
       setCopiedHtml(true); setCopyFailed(false); setTimeout(() => setCopiedHtml(false), 2000);
@@ -7070,6 +7093,7 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
   // tryExecCommandCopy for why).
 
   async function copyRich() {
+    await onSaveSilent?.();
     const html = await generateHTML();
     // Try execCommand first (most likely to actually work in this iframe).
     if (tryExecCommandCopy(html, false)) {
