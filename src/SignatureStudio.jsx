@@ -2767,7 +2767,16 @@ function PublicSharePreview({ shortId }) {
       // they'd rather this design start reflecting their own profile.
       const imported = { ...sig, id: newId, name, autofillEnabled: false, manualOverrides: { ...sharedProfile }, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
       await setDoc(doc(collection(db, "users", user.uid, "signatures"), newId), imported);
-      setSavedName(name);
+      // Redirects into the actual editor with this copy already open,
+      // instead of leaving the person on this static preview page with just
+      // a "saved!" message and no way to get to it from here. Reloading
+      // through a real navigation (not just swapping local state) also
+      // means this always starts from a clean, freshly-authenticated App()
+      // render rather than continuing to run inside whatever state this
+      // preview page happened to be in -- App() picks up the #open= hash
+      // once it finishes loading this account's signatures and opens the
+      // matching one directly.
+      window.location.href = window.location.origin + window.location.pathname + "#open=" + newId;
     } catch (e) {
       console.warn("Could not save shared signature:", e);
       setSaveError(e?.code === "auth/popup-closed-by-user" ? "" : "Something went wrong saving this -- please try again.");
@@ -3629,6 +3638,28 @@ export default function App() {
     setEditingTemplateId(null);
     setScreen("editor");
   }
+
+  // Catches the #open=<id> hash that "Make a Copy to My Account" (on the
+  // public share-link preview page) redirects to after saving a copy --
+  // opens that specific signature directly in the editor instead of
+  // leaving the person to go find it themselves on the dashboard. Waits
+  // for accountLoading to finish since `signatures` isn't populated yet
+  // before that, and only runs once per hash value (openedShareCopyRef)
+  // so it doesn't re-trigger on every later re-render.
+  const openedShareCopyRef = useRef(null);
+  useEffect(() => {
+    if (accountLoading) return;
+    const hash = window.location.hash;
+    if (!hash.startsWith("#open=")) return;
+    const targetId = hash.slice(6);
+    if (openedShareCopyRef.current === targetId) return;
+    const match = signatures.find(s => s.id === targetId);
+    if (!match) return; // signatures may still be one Firestore round-trip behind right after the redirect
+    openedShareCopyRef.current = targetId;
+    window.history.replaceState(null, "", window.location.pathname);
+    openEditor(match);
+    showToast("Saved to your account -- here's your copy.");
+  }, [accountLoading, signatures]);
 
   function usePreset(presetId) {
     const p = allPresets.find(x => x.id === presetId);
