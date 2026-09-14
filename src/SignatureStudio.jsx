@@ -2582,7 +2582,16 @@ function generateSigHTML(sig, profile) {
         // own configured left padding (not replacing it) so both a
         // deliberate column padding AND the inter-column gap apply together.
         (() => {
-          const gutter = ci > 0 ? (parseInt(rs.columnGap) || 10) : 0;
+          // Checks rs.columnGap ITSELF for truthiness before parsing, not
+          // the parsed number -- parseInt("0px") is the number 0, and
+          // `0 || 10` evaluates to 10 in JS, since a numeric zero is
+          // falsy. That silently replaced an intentional "set the gap to
+          // 0" with the 10px default, which is exactly why 0 rendered as
+          // 10px in the actual exported/shared signature while the
+          // editor (which checks the raw string "0px", a non-empty and
+          // therefore truthy value, before ever parsing it) correctly
+          // showed 0.
+          const gutter = ci > 0 ? (rs.columnGap ? (parseInt(rs.columnGap) || 0) : 10) : 0;
           const ownPadL = cs.paddingLeft ? parseInt(cs.paddingLeft) || 0 : 0;
           const total = ownPadL + gutter;
           return total ? `padding-left:${total}px` : "";
@@ -5502,10 +5511,14 @@ function ColPropertiesPanel({ col, rowId, colGap, propLabel, inputStyle, onUpdat
         <input style={inputStyle} value={s.width||"auto"} onChange={e=>onUpdateColStyle("width",e.target.value)} />
       </div>
 
-      {/* Column Gap (global for row) */}
+      {/* Column Gap (global for row) -- DimensionInput (not a plain text
+          input) so a bare number like "40" gets normalized to "40px". A
+          padding value with no unit is invalid CSS and browsers silently
+          drop it, which is exactly why this looked like the whole control
+          just didn't do anything no matter what number was typed in. */}
       <div style={{ marginBottom:10 }}>
         <span style={propLabel}>Gap Between Columns</span>
-        <input style={inputStyle} value={colGap} onChange={e=>onUpdateRowStyle("columnGap",e.target.value)} />
+        <DimensionInput style={inputStyle} value={colGap} onChange={v=>onUpdateRowStyle("columnGap",v)} />
       </div>
 
       {/* Background Color */}
@@ -8701,7 +8714,7 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
             </div>
             <div style={{ marginBottom:10 }}><span style={propLabel}>Padding Top</span><DimensionInput style={inputStyle} value={selectedRow.style?.paddingTop||"8px"} onChange={v=>onUpdateRowStyle(selectedRow.id,"paddingTop",v)}/></div>
             <div style={{ marginBottom:10 }}><span style={propLabel}>Padding Bottom</span><DimensionInput style={inputStyle} value={selectedRow.style?.paddingBottom||"8px"} onChange={v=>onUpdateRowStyle(selectedRow.id,"paddingBottom",v)}/></div>
-            <div style={{ marginBottom:10 }}><span style={propLabel}>Column Gap</span><input style={inputStyle} placeholder="10px" value={selectedRow.style?.columnGap||"10px"} onChange={e=>onUpdateRowStyle(selectedRow.id,"columnGap",e.target.value)}/></div>
+            <div style={{ marginBottom:10 }}><span style={propLabel}>Column Gap</span><DimensionInput style={inputStyle} placeholder="10px" value={selectedRow.style?.columnGap||"10px"} onChange={v=>onUpdateRowStyle(selectedRow.id,"columnGap",v)}/></div>
             <SideBorderSection label="Row Border" s={selectedRow.style||{}} propLabel={propLabel} inputStyle={inputStyle}
               widthKey="borderBottomWidth" colorKey="borderBottomColor"
               onUpdate={(k,v)=>onUpdateRowStyle(selectedRow.id,k,v)} />
