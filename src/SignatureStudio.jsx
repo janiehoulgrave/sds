@@ -2145,7 +2145,21 @@ function renderElementInner(el, profile, forCanvas) {
   // margins, which is exactly the category of quirk (stripped/altered
   // properties, inconsistent collapsing) we kept running into with divs.
   const cellBottomPad = s.marginBottom || "0px";
-  const baseStyle = `font-family:${ff};font-size:${fSize};color:${fColor};font-weight:${fw};${s.textAlign?'text-align:'+s.textAlign+';':''}${s.textTransform?'text-transform:'+s.textTransform+';':''}${s.letterSpacing?'letter-spacing:'+s.letterSpacing+';':''}line-height:${lineHeightPx};${s.fontStyle?'font-style:'+s.fontStyle+';':''}${s.textDecoration&&s.textDecoration!=='none'?'text-decoration:'+s.textDecoration+';':''}padding:${s.paddingTop||'0px'} ${s.paddingRight||'0px'} ${cellBottomPad} ${s.paddingLeft||'0px'};mso-padding-alt:${s.paddingTop||'0px'} ${s.paddingRight||'0px'} ${cellBottomPad} ${s.paddingLeft||'0px'};${bgCss}${borderCss}${radiusCss}`;
+  // Top/Left/Right padding is intentionally NOT included here -- there's a
+  // separate, pre-existing "universal padding" wrapper (see padCss/dropHPad
+  // further down) that already applies Padding Top/Left/Right/Bottom around
+  // EVERY element type uniformly (text, photos, badges, buttons...), by
+  // original design, specifically so it only has to be handled in one place
+  // rather than duplicated inside each element type's own render branch.
+  // A previous fix here added paddingTop/Left/Right into baseStyle too,
+  // apparently not realizing that wrapper already existed -- which meant
+  // text elements got Left/Right/Top padding applied TWICE: once from the
+  // wrapper, once from here, stacking into double the intended offset
+  // (confirmed directly: a 23px Padding Left setting was rendering as a
+  // real 46px gap in the exported HTML). cellBottomPad (bottom only) stays,
+  // since it reads a different key (s.marginBottom) than the wrapper's own
+  // bottom source (s.paddingBottom) and was never part of this duplication.
+  const baseStyle = `font-family:${ff};font-size:${fSize};color:${fColor};font-weight:${fw};${s.textAlign?'text-align:'+s.textAlign+';':''}${s.textTransform?'text-transform:'+s.textTransform+';':''}${s.letterSpacing?'letter-spacing:'+s.letterSpacing+';':''}line-height:${lineHeightPx};${s.fontStyle?'font-style:'+s.fontStyle+';':''}${s.textDecoration&&s.textDecoration!=='none'?'text-decoration:'+s.textDecoration+';':''}padding:0 0 ${cellBottomPad} 0;mso-padding-alt:0 0 ${cellBottomPad} 0;${bgCss}${borderCss}${radiusCss}`;
   // Wraps a line of text in its own single-row, single-cell table -- the
   // email-safe equivalent of a <div>, but immune to the div-stacking quirks
   // Gmail's paste sanitizer applies inconsistently.
