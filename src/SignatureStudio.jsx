@@ -6590,31 +6590,24 @@ function InlineEditableText({ el, profile, autofillEnabled, onChangeContent, onC
     return "Mobile: (555) 000-0000 | Office: (555) 000-0000";
   }
 
-  // What text should currently display. Four cases, in priority order:
-  //  - Autofill off + this is a Smart Field: acts like a Text element for
-  //    editing purposes (same el.content storage, same edit path), but
-  //    still falls back to profile[profileField] before the generic
-  //    placeholder -- profile here is effectiveProfile, which already
-  //    folds in activeSig.manualOverrides. That fallback is what makes a
-  //    freshly-copied "Make a Copy" design actually show its frozen data
-  //    immediately: that flow bakes the whole profile into
-  //    manualOverrides, not into each individual element's el.content, so
-  //    without this fallback every Smart Field showed its generic
-  //    placeholder ("Your Name") until someone happened to retype that
-  //    specific field by hand -- even though the real data was sitting
-  //    right there in profile the entire time. Once someone actually edits
-  //    a field here, el.content takes over and holds their own version.
-  //  - A real Text element: unchanged, interpolate()'d el.content.
-  //  - Autofill on + the combined Phone field: unchanged, auto-computed
-  //    from profile.mobile/profile.phone unless manually overridden.
-  //  - Autofill on + any other Smart Field: unchanged, straight from the
-  //    (already autofill-aware) profile object passed in.
-  const displayValue = (isPlainText && isDynamic)
-    ? (el.content || profile[profileField] || DYNAMIC_PLACEHOLDER[el.subtype] || "")
-    : isPlainText
-      ? interpolate(el.content || "", profile)
-      : isPhones
-        ? (el.content || autoPhoneText())
+  // What text should currently display. isPhones is checked FIRST,
+  // ahead of the generic isPlainText/isDynamic branch below -- the
+  // combined Mobile+Office field is a special case that doesn't map to a
+  // single profile key the way Name/Title/Company/Address do (there's no
+  // DYNAMIC_PROFILE_FIELD entry for "phones" at all, since it's built by
+  // COMBINING profile.mobile and profile.phone together). Autofill-off
+  // also makes isPlainText true for phones (same as every other Smart
+  // Field), so without checking isPhones first, this fell into the
+  // generic branch below, found no matching profile key or placeholder
+  // for "phones", and silently rendered as an empty line -- an entire
+  // element quietly disappearing from a "Make a Copy"'d design rather
+  // than showing wrong text, which is what actually happened here.
+  const displayValue = isPhones
+    ? (el.content || autoPhoneText())
+    : (isPlainText && isDynamic)
+      ? (el.content || profile[profileField] || DYNAMIC_PLACEHOLDER[el.subtype] || "")
+      : isPlainText
+        ? interpolate(el.content || "", profile)
         : (profile[profileField] || DYNAMIC_PLACEHOLDER[el.subtype] || "");
 
   // Only sync DOM when NOT focused — prevents overwriting while typing
