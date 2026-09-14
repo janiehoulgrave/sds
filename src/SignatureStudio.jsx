@@ -6491,13 +6491,17 @@ function LinkedDimensionPair({ propLabel, inputStyle, widthValue, heightValue, w
 
   function unitOf(v, fallback) {
     const str = String(v || fallback || "");
-    // "auto" is a valid CSS value but not a unit -- the regex below matches
-    // any trailing letters, which caught "auto" as if it were one. That's
-    // what produced the literal garbled text "105auto": a computed height
-    // of 105 plus a "unit" that was actually the whole word "auto",
-    // concatenated together. Falls back to px, same as an unset value would.
-    if (/^auto$/i.test(str)) return "px";
-    const m = str.match(/[a-z%]+$/i);
+    // Whitelist of REAL CSS units, not a blacklist of specific bad words.
+    // The previous version matched ANY trailing letters as if they were a
+    // valid unit, and only specifically excluded the exact word "auto" --
+    // so an already-corrupted value like "103auto" (a number glued to the
+    // word from before that fix) still matched "auto" as its "unit" and
+    // kept perpetuating the same corruption on every subsequent resize.
+    // Recognizing only px/%/em/rem as legitimate means anything else --
+    // "auto", "103auto", or any other garbage -- correctly falls back to
+    // px instead, which also self-heals any value already corrupted this
+    // way instead of needing a separate one-time data fix.
+    const m = str.match(/(px|%|em|rem)$/i);
     return m ? m[0] : "px";
   }
   function ratio() {
