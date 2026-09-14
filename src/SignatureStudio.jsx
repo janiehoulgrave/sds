@@ -2145,7 +2145,7 @@ function renderElementInner(el, profile, forCanvas) {
   // margins, which is exactly the category of quirk (stripped/altered
   // properties, inconsistent collapsing) we kept running into with divs.
   const cellBottomPad = s.marginBottom || "0px";
-  const baseStyle = `font-family:${ff};font-size:${fSize};color:${fColor};font-weight:${fw};${s.textAlign?'text-align:'+s.textAlign+';':''}${s.textTransform?'text-transform:'+s.textTransform+';':''}${s.letterSpacing?'letter-spacing:'+s.letterSpacing+';':''}line-height:${lineHeightPx};${s.fontStyle?'font-style:'+s.fontStyle+';':''}${s.textDecoration&&s.textDecoration!=='none'?'text-decoration:'+s.textDecoration+';':''}padding:0 0 ${cellBottomPad} 0;mso-padding-alt:0 0 ${cellBottomPad} 0;${bgCss}${borderCss}${radiusCss}`;
+  const baseStyle = `font-family:${ff};font-size:${fSize};color:${fColor};font-weight:${fw};${s.textAlign?'text-align:'+s.textAlign+';':''}${s.textTransform?'text-transform:'+s.textTransform+';':''}${s.letterSpacing?'letter-spacing:'+s.letterSpacing+';':''}line-height:${lineHeightPx};${s.fontStyle?'font-style:'+s.fontStyle+';':''}${s.textDecoration&&s.textDecoration!=='none'?'text-decoration:'+s.textDecoration+';':''}padding:${s.paddingTop||'0px'} ${s.paddingRight||'0px'} ${cellBottomPad} ${s.paddingLeft||'0px'};mso-padding-alt:${s.paddingTop||'0px'} ${s.paddingRight||'0px'} ${cellBottomPad} ${s.paddingLeft||'0px'};${bgCss}${borderCss}${radiusCss}`;
   // Wraps a line of text in its own single-row, single-cell table -- the
   // email-safe equivalent of a <div>, but immune to the div-stacking quirks
   // Gmail's paste sanitizer applies inconsistently.
@@ -2549,7 +2549,7 @@ function generateSigHTML(sig, profile) {
       rs.backgroundImage ? `background-image:url('${rs.backgroundImage}');background-size:${rs.backgroundSize==="repeat"?"auto":(rs.backgroundSize||"cover")};background-repeat:${rs.backgroundSize==="repeat"?"repeat":"no-repeat"};background-position:center;` : "",
     ].filter(Boolean).join(";");
     html += `<tr><td style="${rStyle};padding:${rs.paddingTop||"0px"} 0 ${rs.paddingBottom||"0px"} 0;"><table cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;table-layout:fixed;"><tr>`;
-    row.columns.forEach(col => {
+    row.columns.forEach((col, ci) => {
       const cs = col.style || {};
       // If this column holds a photo, give it an explicit pixel width
       // (photo size + its own padding) instead of a percentage -- min-width
@@ -2574,7 +2574,19 @@ function generateSigHTML(sig, profile) {
       const cStyle = [
         `vertical-align:${cs.verticalAlign||"top"}`,
         `width:${w}`,
-        cs.paddingLeft ? `padding-left:${cs.paddingLeft}` : "",
+        // Column Gap (the spacing between columns) was only ever applied on
+        // the live canvas -- this export path never read row.style.columnGap
+        // at all, so every actual copied/shared/pasted signature rendered
+        // its columns flush against each other with zero gap, no matter
+        // what was set in the panel. Combined additively with the column's
+        // own configured left padding (not replacing it) so both a
+        // deliberate column padding AND the inter-column gap apply together.
+        (() => {
+          const gutter = ci > 0 ? (parseInt(rs.columnGap) || 10) : 0;
+          const ownPadL = cs.paddingLeft ? parseInt(cs.paddingLeft) || 0 : 0;
+          const total = ownPadL + gutter;
+          return total ? `padding-left:${total}px` : "";
+        })(),
         cs.paddingRight ? `padding-right:${cs.paddingRight}` : "",
         cs.paddingTop ? `padding-top:${cs.paddingTop}` : "",
         cs.paddingBottom ? `padding-bottom:${cs.paddingBottom}` : "",
