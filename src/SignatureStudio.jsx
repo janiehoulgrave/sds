@@ -3617,21 +3617,21 @@ export default function App() {
     }
   }
 
-  function updateProfileField(field, val) {
-    const updated = { ...profile, [field]: val };
-    saveProfile(updated);
-  }
-
-  // Smart Fields (Name, Photo, Phone, Address, etc.) normally read from and
-  // write to the account's own persisted profile above -- correct when
-  // someone's building their own signature, but wrong when staff builds one
-  // FOR an agent: typing the agent's name into the Name field was silently
-  // overwriting the staff member's own profile.name in Firestore, because
-  // there was only ever one place for that data to go. "Autofill My
-  // Details" (a per-signature flag, not an account setting) is the fix:
-  // when it's off, edits to Smart Fields go into activeSig.manualOverrides
-  // instead -- scoped to just this one signature, saved and shared right
-  // alongside it, and never touching the real account profile at all.
+  // Smart Fields (Name, Photo, Phone, Address, etc.) used to write straight
+  // into the account's own persisted profile above whenever Autofill was on
+  // (the default) -- which meant simply typing into a signature, before
+  // ever visiting the dedicated Profile screen or filling out the first-run
+  // setup modal, silently populated the account profile with whatever was
+  // typed. That's a real account-wide side effect from what looks like a
+  // one-off edit to a single signature, and it's exactly how a staff
+  // member's own (never set up) profile would end up holding an agent's
+  // name after simply building that agent's signature. The ONLY places that
+  // should ever write to the account profile are the explicit ones the
+  // person opened on purpose: the Profile screen (ProfileForm, via
+  // saveProfile) and the first-run "Welcome to Signature Studio" setup
+  // modal. Editing a Smart Field inside a signature -- regardless of the
+  // Autofill toggle -- now always writes to that signature's own
+  // manualOverrides instead, never to the shared profile.
   function updateSigOverrideField(field, val) {
     if (!activeSig) return;
     pushSig({ ...activeSig, manualOverrides: { ...(activeSig.manualOverrides||{}), [field]: val } });
@@ -3641,32 +3641,27 @@ export default function App() {
     const currentlyOn = activeSig.autofillEnabled !== false; // undefined = on, matches old behavior
     pushSig({ ...activeSig, autofillEnabled: !currentlyOn });
   }
-  // Routes a Smart Field edit to the right place depending on the toggle
-  // above, without any of Editor's internals needing to know which one is
-  // active -- every existing call site that already calls
-  // onUpdateProfileField(...) (inline canvas edits, the photo/logo upload
-  // flows, the panel's manual-entry inputs) gets routed correctly for free.
+  // Every existing call site that already calls onUpdateProfileField(...)
+  // (inline canvas edits, the photo/logo upload flows, the panel's
+  // manual-entry inputs) keeps working unchanged -- it's just that the
+  // destination is now always this signature's own override, never the
+  // account profile, whatever the Autofill toggle is set to.
   function routeProfileFieldUpdate(field, val) {
-    if (activeSig && activeSig.autofillEnabled === false) {
-      updateSigOverrideField(field, val);
-    } else {
-      updateProfileField(field, val);
-    }
+    updateSigOverrideField(field, val);
   }
-  // What Smart Fields actually render from. Autofill on (the default, and
-  // the only behavior that existed before this): the real account profile,
-  // unchanged. Autofill off: starts from a genuinely BLANK profile (every
-  // field empty, same as DEFAULT_PROFILE), with this signature's own manual
-  // overrides layered on top -- not the real profile as a starting point.
-  // Basing it on the real profile made the toggle look like it did nothing
-  // until every field had already been retyped by hand, since nothing
-  // visibly changed the moment you flipped it off. Starting blank means each
-  // Smart Field immediately falls back to its own placeholder text (e.g.
-  // "Your Name"), so it's obvious at a glance that autofill is off and
-  // everything here is safe to type over without touching the real profile.
-  const effectiveProfile = (activeSig && activeSig.autofillEnabled === false)
-    ? { ...DEFAULT_PROFILE, ...(activeSig.manualOverrides||{}) }
-    : profile;
+  // What Smart Fields actually render from. Autofill on (the default):
+  // starts from the real account profile, so someone who HAS set up their
+  // profile still sees it fill in automatically. Autofill off: starts from a
+  // genuinely blank profile (every field empty, same as DEFAULT_PROFILE),
+  // so it's obvious at a glance that nothing here is tied to the real
+  // profile. Either way, this signature's own manualOverrides are layered on
+  // top -- any field actually edited in this signature always shows that
+  // edit, and that edit lives ONLY here, never in the shared account
+  // profile.
+  const effectiveProfile = {
+    ...(activeSig && activeSig.autofillEnabled === false ? DEFAULT_PROFILE : profile),
+    ...(activeSig ? (activeSig.manualOverrides||{}) : {})
+  };
 
   const [prevScreen, setPrevScreen] = useState("home");
   function navigate(s) {
@@ -4348,22 +4343,17 @@ export default function App() {
     cloned.name = sig.name + " (copy)";
     cloned.createdAt = new Date().toISOString();
     cloned.updatedAt = new Date().toISOString();
-    // Freeze the duplicate into a fully independent copy. If the original
-    // had Autofill ON (the default -- the common case when staff just type
-    // an agent's name/info straight into the fields without ever touching
-    // the toggle), its Smart Fields don't actually live on the signature at
-    // all -- they're read live from the one shared account-wide `profile`
-    // object. Without this, "duplicating" a finished signature didn't copy
-    // that info anywhere: the original AND the copy kept reading from the
-    // SAME shared profile, so editing the name field on either one silently
-    // overwrote it for both -- exactly the "I edited the copy and it changed
-    // the original too" report. Snapshotting whatever was effectively
-    // showing into the copy's own manualOverrides and switching Autofill
-    // off guarantees the copy never again depends on that shared profile,
-    // same as the "Make a Copy" flow on a public share link already does.
-    if (sig.autofillEnabled !== false) {
-      cloned.manualOverrides = { ...DEFAULT_PROFILE, ...profile };
-    }
+    // Freeze the duplicate into a fully independent copy that can never
+    // again depend on the account profile, no matter what Autofill was set
+    // to on the original -- snapshot exactly what was effectively showing
+    // (account profile, when Autofill was on, with this signature's own
+    // overrides layered on top -- same formula as effectiveProfile above)
+    // into the copy's own manualOverrides, then switch Autofill off. Same
+    // decoupling the "Make a Copy" flow on a public share link already does.
+    cloned.manualOverrides = {
+      ...(sig.autofillEnabled === false ? DEFAULT_PROFILE : profile),
+      ...(sig.manualOverrides||{})
+    };
     cloned.autofillEnabled = false;
     saveSigs([cloned, ...signatures]);
     showToast("Signature duplicated");
