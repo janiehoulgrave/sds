@@ -4348,6 +4348,23 @@ export default function App() {
     cloned.name = sig.name + " (copy)";
     cloned.createdAt = new Date().toISOString();
     cloned.updatedAt = new Date().toISOString();
+    // Freeze the duplicate into a fully independent copy. If the original
+    // had Autofill ON (the default -- the common case when staff just type
+    // an agent's name/info straight into the fields without ever touching
+    // the toggle), its Smart Fields don't actually live on the signature at
+    // all -- they're read live from the one shared account-wide `profile`
+    // object. Without this, "duplicating" a finished signature didn't copy
+    // that info anywhere: the original AND the copy kept reading from the
+    // SAME shared profile, so editing the name field on either one silently
+    // overwrote it for both -- exactly the "I edited the copy and it changed
+    // the original too" report. Snapshotting whatever was effectively
+    // showing into the copy's own manualOverrides and switching Autofill
+    // off guarantees the copy never again depends on that shared profile,
+    // same as the "Make a Copy" flow on a public share link already does.
+    if (sig.autofillEnabled !== false) {
+      cloned.manualOverrides = { ...DEFAULT_PROFILE, ...profile };
+    }
+    cloned.autofillEnabled = false;
     saveSigs([cloned, ...signatures]);
     showToast("Signature duplicated");
   }
