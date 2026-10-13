@@ -2096,7 +2096,7 @@ function computeLineHeightPx(fontSize, lineHeight) {
   return `${Math.round(fSizeNum * 1.2)}px`;
 }
 
-function renderElementInner(el, profile, forCanvas) {
+function renderElementInner(el, profile, forCanvas, colMaxPx) {
   const s = el.style || {};
   const fSize = s.fontSize || "11px";
   const fColor = s.color || "#000000";
@@ -2190,17 +2190,51 @@ function renderElementInner(el, profile, forCanvas) {
   }
   if (el.type === "image") {
     const src = el.content || "";
-    const br = s.borderRadius ? `border-radius:${s.borderRadius};` : "";
+    // Same Shape + per-corner radius model as headshots: Circle is a true
+    // circle/oval (radius 50%), otherwise the four per-corner fields apply,
+    // falling back to the old single borderRadius for images styled before
+    // those controls existed.
+    const isCircle = s.imageShape === "circle";
+    const hasCorner = s.borderRadiusTL||s.borderRadiusTR||s.borderRadiusBL||s.borderRadiusBR;
+    const brVal = isCircle ? "50%"
+      : hasCorner ? `${s.borderRadiusTL||"0px"} ${s.borderRadiusTR||"0px"} ${s.borderRadiusBR||"0px"} ${s.borderRadiusBL||"0px"}`
+      : (s.borderRadius || "");
+    const br = brVal ? `border-radius:${brVal};` : "";
     const bdr = s.borderWidth ? `border:${s.borderWidth} ${s.borderStyle||"solid"} ${s.borderColor||"#e5e7eb"};` : "";
     const bg = s.backgroundColor ? `background:${s.backgroundColor};` : "";
     if (!src) return `<div style="width:100%;min-height:80px;${bg}border:1px dashed #d1d5db;${br}display:flex;align-items:center;justify-content:center;font-size:11px;color:#9ca3af;">Click to choose image</div>`;
-    const imgW = s.width || "100%";
-    const imgH = s.height || "auto";
-    // The container now matches the image's own intended width instead of
-    // always being 100% -- otherwise shrinking the Width field only resized
-    // the <img> itself while its surrounding box (and click/selection area)
-    // stayed full-width, making a resize look like it wasn't doing anything.
-    return `<div style="margin:0;line-height:0;font-size:0;width:${imgW};max-width:100%;overflow:hidden;${br}${bdr}${bg}"><img src="${src}" style="width:100%;height:${imgH};object-fit:${s.objectFit||"cover"};display:block;" /></div>`;
+    let imgW = s.width || "100%";
+    let imgH = s.height || "auto";
+    // A circle needs equal width and height while dimensions are locked;
+    // unlocking is how you deliberately get an oval (same rule as headshots).
+    const isLocked = s.sizeLocked !== "false";
+    if (isCircle && isLocked && /px$/i.test(String(imgW))) imgH = imgW;
+    const bothPx = /px$/i.test(String(imgW)) && /px$/i.test(String(imgH));
+    let wNum = parseFloat(imgW) || 0;
+    let hNum = parseFloat(imgH) || 0;
+    // EXPORT only: when the column is narrower than the image's pixel size,
+    // scale width and height down together (keeping the shape true) so the
+    // content fits the column rather than the column stretching to fit it.
+    if (bothPx && !forCanvas && colMaxPx && wNum > colMaxPx) {
+      hNum = Math.round(hNum * colMaxPx / wNum);
+      wNum = Math.floor(colMaxPx);
+      imgW = wNum + "px"; imgH = hNum + "px";
+    }
+    const imgBox = `box-sizing:border-box;${br}${bdr}${bg}`;
+    if (bothPx) {
+      const sizing = forCanvas
+        ? `width:100%;height:auto;aspect-ratio:${wNum}/${hNum};`
+        : `width:100%;height:${imgH};`;
+      // Export: hard pixel box + overflow hidden on the wrapper so the image
+      // stays clipped to its intended size even if Gmail strips the <img>'s
+      // own sizing on forward (same protection headshots have).
+      const wrap = forCanvas ? `width:${imgW};max-width:100%;` : `width:${imgW};height:${imgH};overflow:hidden;`;
+      return `<div style="margin:0;line-height:0;font-size:0;${wrap}"><img src="${src}" width="${wNum}" height="${hNum}" style="${sizing}${imgBox}object-fit:${s.objectFit||"cover"};display:block;" /></div>`;
+    }
+    // The container matches the image's own intended width instead of always
+    // being 100% -- otherwise shrinking Width only resized the <img> itself
+    // while its surrounding box stayed full-width.
+    return `<div style="margin:0;line-height:0;font-size:0;width:${imgW};max-width:100%;"><img src="${src}" style="width:100%;height:${imgH};${imgBox}object-fit:${s.objectFit||"cover"};display:block;" /></div>`;
   }
   if (el.type === "badges") {
     const count = parseInt(s.badgeCount) || 4;
@@ -2294,10 +2328,18 @@ function renderElementInner(el, profile, forCanvas) {
         // you get an oval -- forcing h=w even after unlocking defeated that
         // entirely (unlock, raise the height, and it silently stayed a circle).
         const isLocked = s.sizeLocked !== "false";
-        const w = s.width || "90px";
-        const h = (isCircle && isLocked) ? w : (s.height || "90px");
-        const wNum = parseInt(w) || 90;
-        const hNum = parseInt(h) || 90;
+        let w = s.width || "90px";
+        let h = (isCircle && isLocked) ? w : (s.height || "90px");
+        let wNum = parseInt(w) || 90;
+        let hNum = parseInt(h) || 90;
+        // EXPORT only: if the column is narrower than the photo, scale the
+        // photo down (both dimensions together, so a circle stays round)
+        // instead of letting the column grow to fit it.
+        if (!forCanvas && colMaxPx && wNum > colMaxPx && !String(w).includes("%")) {
+          hNum = Math.round(hNum * colMaxPx / wNum);
+          wNum = Math.floor(colMaxPx);
+          w = wNum + "px"; h = hNum + "px";
+        }
         // Sizing lives directly on the <img> itself now -- both the HTML
         // width/height attributes (essential for Outlook, which frequently
         // ignores CSS sizing on <img> and falls back to these) AND matching
@@ -2506,8 +2548,8 @@ function renderElementInner(el, profile, forCanvas) {
   return "";
 }
 
-function renderElementHTML(el, profile, forCanvas) {
-  const inner = renderElementInner(el, profile, forCanvas);
+function renderElementHTML(el, profile, forCanvas, colMaxPx) {
+  const inner = renderElementInner(el, profile, forCanvas, colMaxPx);
   const s = el.style || {};
   const align = s.align || null;
   const isImg = el.type === "image" || (el.type === "dynamic" && (el.subtype === "photo" || el.subtype === "logo" || el.subtype === "personalLogo"));
@@ -2565,26 +2607,19 @@ function generateSigHTML(sig, profile) {
     html += `<tr><td style="${rStyle};padding:${rs.paddingTop||"0px"} 0 ${rs.paddingBottom||"0px"} 0;"><table cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;table-layout:fixed;"><tr>`;
     row.columns.forEach((col, ci) => {
       const cs = col.style || {};
-      // If this column holds a photo, give it an explicit pixel width
-      // (photo size + its own padding) instead of a percentage -- min-width
-      // was the first attempt at this, but table-layout:fixed frequently
-      // does NOT honor min-width on cells at all (confirmed via direct
-      // browser measurement: a cell with min-width:166px still rendered at
-      // ~146px in practice). An explicit pixel width, however, IS reliably
-      // honored under fixed layout, since it's the table's actual primary
-      // sizing mechanism rather than a secondary override layered on top
-      // of a percentage. This is what was letting a circular photo render
-      // as an oval whenever the table itself was narrower than its full
-      // design width (Dashboard preview cards, Gmail/Outlook re-rendering).
-      const photoEl = col.elements.find(el => el.type === "dynamic" && el.subtype === "photo");
-      const photoSize = photoEl ? (String(photoEl.style?.width||"").includes("%") ? 90 : (parseInt(photoEl.style?.width) || 90)) : null;
-      // A border on the photo now sits INSIDE its box (box-sizing:border-box),
-      // so it does not add to the photo's footprint -- the column width only
-      // needs to match the photo width, and the circle/shape stays true even
-      // at max column width with a thick border.
+      // Column widths come ONLY from the column itself (equal by default,
+      // or whatever was set manually) -- never from what's inside it. A
+      // photo used to force its column to the photo's pixel size, which
+      // made columns change width depending on content. Content now scales
+      // down to fit its column instead (see colMaxPx below).
       const padL = cs.paddingLeft ? parseInt(cs.paddingLeft) || 0 : 0;
       const padR = cs.paddingRight ? parseInt(cs.paddingRight) || 0 : 0;
-      const w = photoSize ? `${photoSize + padL + padR}px` : (cs.width || `${Math.floor(100/row.columns.length)}%`);
+      const nCols = row.columns.length;
+      const w = cs.width || (ci === nCols-1 ? `${100 - Math.floor(100/nCols)*(nCols-1)}%` : `${Math.floor(100/nCols)}%`);
+      const gutterPx = ci > 0 ? (rs.columnGap ? (parseInt(rs.columnGap) || 0) : 10) : 0;
+      const wNumCol = parseFloat(w) || 0;
+      const colOuterPx = /%$/.test(String(w)) ? 560 * wNumCol / 100 : wNumCol;
+      const colMaxPx = colOuterPx ? Math.max(20, colOuterPx - padL - padR - gutterPx) : null;
       const cStyle = [
         `vertical-align:${cs.verticalAlign||"top"}`,
         `width:${w}`,
@@ -2617,7 +2652,7 @@ function generateSigHTML(sig, profile) {
         cs.borderLeftWidth ? `border-left:${cs.borderLeftWidth} solid ${cs.borderLeftColor||"#e5e7eb"}` : "",
       ].filter(Boolean).join(";");
       html += `<td style="${cStyle};">`;
-      col.elements.forEach(el => { html += renderElementHTML(el, profile); });
+      col.elements.forEach(el => { html += renderElementHTML(el, profile, false, colMaxPx); });
       html += `</td>`;
     });
     html += `</tr></table></td></tr>`;
@@ -4068,7 +4103,11 @@ export default function App() {
       id: "row-"+uuid(), style: {},
       columns: Array.from({length:cols}).map((_,i) => ({
         id: "col-"+uuid(), elements: [],
-        style: { verticalAlign:"top", ...(i < cols-1 && cols > 1 ? {borderRightWidth:"1px",borderRightColor:"#e5e7eb"} : {}) }
+        style: { verticalAlign:"top",
+          // Every new column starts at the same width; the last one takes
+          // the rounding remainder so they always total exactly 100%.
+          width: (i === cols-1 ? 100 - Math.floor(100/cols)*(cols-1) : Math.floor(100/cols)) + "%",
+          ...(i < cols-1 && cols > 1 ? {borderRightWidth:"1px",borderRightColor:"#e5e7eb"} : {}) }
       }))
     };
     // insertIndex lets a drag-drop caller drop the row at an exact position
@@ -6169,6 +6208,25 @@ async function prepareSigForExport(sig, profile) {
   const rows = await Promise.all(sig.rows.map(async row => {
     const columns = await Promise.all(row.columns.map(async col => {
       const elements = await Promise.all(col.elements.map(async el => {
+        if (el.type === "image" && el.content) {
+          // Generic images with an explicit pixel box get pre-cropped to that
+          // box's ratio too, so Gmail (which drops object-fit) still shows the
+          // intended framing, same as headshots.
+          const si = el.style || {};
+          const wI = /px$/i.test(String(si.width||"")) ? parseInt(si.width) : 0;
+          let hI = /px$/i.test(String(si.height||"")) ? parseInt(si.height) : 0;
+          if (si.imageShape === "circle" && si.sizeLocked !== "false" && wI) hI = wI;
+          if (!wI || !hI) return el;
+          // Never flatten animated GIFs or SVGs, and only pre-crop when the
+          // image is meant to fill its box (cover) -- contain/fill must keep
+          // their full frame.
+          const srcI = String(el.content);
+          if (/^data:image\/(gif|svg)/i.test(srcI) || /\.(gif|svg)(\?|$)/i.test(srcI)) return el;
+          if ((si.objectFit || "cover") !== "cover") return el;
+          const croppedI = await cropImageToRatio(el.content, wI, hI);
+          if (!croppedI || croppedI === el.content) return el;
+          return { ...el, content: croppedI };
+        }
         if (el.type !== "dynamic" || el.subtype !== "photo") return el;
         const s = el.style || {};
         const rawSrc = s.croppedSrc || profile.photoUrl;
@@ -7919,20 +7977,11 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
               <table cellPadding="0" cellSpacing="0" style={{ width:"100%", borderCollapse:"collapse", tableLayout:"fixed" }}>
                 <tbody><tr>
                   {row.columns.map((col, ci) => {
-                    // Match the export renderer: if a column holds a photo,
-                    // give it an explicit pixel width equal to the photo size
-                    // (+ the column's own left/right padding) instead of a
-                    // percentage. Under the fixed table layout a percentage
-                    // column narrower than the photo squished a circle into an
-                    // oval on the live canvas; pixel-sizing the column keeps the
-                    // shape true and makes the canvas agree with the pasted
-                    // signature. Border now sits inside the photo box
-                    // (box-sizing:border-box), so it adds nothing to this width.
-                    const photoElC = col.elements.find(el => el.type === "dynamic" && el.subtype === "photo");
-                    const photoSizeC = photoElC ? (String(photoElC.style?.width||"").includes("%") ? 90 : (parseInt(photoElC.style?.width) || 90)) : null;
-                    const cPadL = col.style?.paddingLeft ? parseInt(col.style.paddingLeft) || 0 : 0;
-                    const cPadR = col.style?.paddingRight ? parseInt(col.style.paddingRight) || 0 : 0;
-                    const colW = photoSizeC ? `${photoSizeC + cPadL + cPadR}px` : (col.style?.width || `${Math.floor(100/row.columns.length)}%`);
+                    // Column width comes only from the column itself (equal
+                    // by default, or whatever was set manually) -- never from
+                    // its contents. Photos/images scale down to fit instead.
+                    const nColsC = row.columns.length;
+                    const colW = col.style?.width || (ci === nColsC-1 ? `${100 - Math.floor(100/nColsC)*(nColsC-1)}%` : `${Math.floor(100/nColsC)}%`);
                     const isSelCol = selectedColId === col.id;
                     const gutter = row.style?.columnGap || "10px";
                     return (
@@ -8206,7 +8255,56 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
                     <Icon name="crop" size={16} /> Crop Image
                   </button>
                 )}
-                <div style={{ marginTop:8 }}><span style={propLabel}>Corner Radius</span><DimensionInput style={inputStyle} placeholder="0px" value={selectedEl.style?.borderRadius||""} onChange={v=>onUpdateElStyle("borderRadius",v)}/></div>
+                {/* Shape + per-corner radius -- same options headshots have. */}
+                <div style={{ marginTop:8 }}>
+                  <span style={propLabel}>Shape</span>
+                  <div style={{ display:"flex", gap:8, marginBottom:10 }}>
+                    {[
+                      {val:"circle", label:"Circle", r:"50%"},
+                      {val:"square", label:"Square", r:"0px"},
+                    ].map(opt => {
+                      const active = (selectedEl.style?.imageShape==="circle" ? "circle" : "square") === opt.val;
+                      return (
+                        <button key={opt.val} onClick={()=>{
+                          if (opt.val === "circle") {
+                            // A circle needs equal pixel width and height.
+                            const wNum = parseFloat(selectedEl.style?.width);
+                            const hNum = parseFloat(selectedEl.style?.height);
+                            const wIsPx = /px$/i.test(String(selectedEl.style?.width||""));
+                            const hIsPx = /px$/i.test(String(selectedEl.style?.height||""));
+                            const size = (wIsPx && wNum) ? wNum : (hIsPx && hNum) ? hNum : 120;
+                            onUpdateElStyleMulti({ imageShape:"circle", width:`${size}px`, height:`${size}px`, sizeLocked:"true" });
+                          } else {
+                            onUpdateElStyle("imageShape","square");
+                          }
+                        }}
+                          style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:5, padding:"8px 4px", border:`2px solid ${active?"#0051d5":"#e5e7eb"}`, borderRadius:6, background:active?"#eff6ff":"#f9fafb", cursor:"pointer" }}>
+                          <div style={{ width:28, height:28, background:active?"#0051d5":"#d1d5db", borderRadius:opt.r }} />
+                          <span style={{ fontSize:15, fontWeight:700, color:active?"#0051d5":"#6b7280" }}>{opt.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div style={{ marginBottom:10 }}>
+                  <span style={propLabel}>Corner Radius</span>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:5 }}>
+                    {[["Top Left","borderRadiusTL"],["Top Right","borderRadiusTR"],["Bottom Left","borderRadiusBL"],["Bottom Right","borderRadiusBR"]].map(([lbl,key])=>(
+                      <div key={key}>
+                        <span style={{ fontSize:15, color:"#9ca3af", display:"block", marginBottom:2 }}>{lbl}</span>
+                        <DimensionInput style={inputStyle} placeholder="0px" value={selectedEl.style?.[key]||""} onChange={v=>onUpdateElStyle(key,v)}/>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ marginTop:6 }}>
+                    <span style={{ fontSize:15, color:"#9ca3af", display:"block", marginBottom:2 }}>All corners at once</span>
+                    <input style={inputStyle} placeholder="e.g. 8px" value={selectedEl.style?.borderRadiusAll||""}
+                      onChange={e=>{
+                        const v = e.target.value;
+                        onUpdateElStyleMulti({ borderRadiusAll:v, borderRadiusTL:v, borderRadiusTR:v, borderRadiusBL:v, borderRadiusBR:v });
+                      }}/>
+                  </div>
+                </div>
                 <div style={{ marginTop:8 }}><span style={propLabel}>Object Fit</span>
                   <select style={inputStyle} value={selectedEl.style?.objectFit||"cover"} onChange={e=>onUpdateElStyle("objectFit",e.target.value)}>
                     <option value="cover">Cover</option><option value="contain">Contain</option><option value="fill">Fill</option>
@@ -8843,8 +8941,11 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
           : (s.borderRadiusTL||s.borderRadiusTR||s.borderRadiusBL||s.borderRadiusBR)
             ? `${s.borderRadiusTL||"0px"} ${s.borderRadiusTR||"0px"} ${s.borderRadiusBR||"0px"} ${s.borderRadiusBL||"0px"}`
             : "0px";
-        const w = parseFloat(selectedEl.style?.width) || 90;
-        const h = parseFloat(selectedEl.style?.height) || 90;
+        const isLockedC = s.sizeLocked !== "false";
+        const wPx = /px$/i.test(String(s.width||"")) ? parseFloat(s.width) : 0;
+        const hPx = /px$/i.test(String(s.height||"")) ? parseFloat(s.height) : 0;
+        const w = isImage ? (wPx || 90) : (parseFloat(selectedEl.style?.width) || 90);
+        const h = isImage ? ((s.imageShape==="circle" && isLockedC && wPx) ? wPx : (hPx || 90)) : (parseFloat(selectedEl.style?.height) || 90);
         return (
           <CropModal
             imageSrc={src}
