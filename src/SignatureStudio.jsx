@@ -4365,7 +4365,7 @@ export default function App() {
   function addColumn(rowId) {
     if (!activeSig) return;
     const row = activeSig.rows.find(r => r.id === rowId);
-    if (!row || row.columns.length >= 6) return;
+    if (!row || row.columns.length >= 10) return;
     const newCol = { id:"col-"+uuid(), elements:[], style:{ verticalAlign:"top" } };
     const newCols = [...row.columns, newCol];
     newCols.forEach(c => c.style = { ...c.style, width: equalColPct(newCols.length) });
@@ -5400,7 +5400,7 @@ function ColDeleteControls({ row, onDeleteColumn }) {
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:4, width:"100%" }}>
       <span style={{ fontSize:11, color:"#6b7280", fontWeight:600 }}>Click a column to remove it:</span>
-      <div style={{ display:"flex", gap:4 }}>
+      <div style={row.columns.length > 5 ? { display:"grid", gridTemplateColumns:"repeat(5, 1fr)", gap:4 } : { display:"flex", gap:4 }}>
         {row.columns.map((col, ci) => (
           <button key={col.id} onClick={()=>setConfirmDel(ci)}
             style={{ flex:1, padding:"6px 2px", fontSize:13, fontWeight:600, borderRadius:5, cursor:"pointer", border:"1px solid #e5e7eb", background:"#f9fafb", color:"#374151", fontFamily:"inherit", transition:"all 0.15s" }}
@@ -5542,7 +5542,7 @@ function ColumnWidthBar({ row, startColDrag, selectedColId, onEqualize }) {
           const l = left; left += w;
           const isSelected = col.id === selectedColId;
           return (
-            <div key={col.id} style={{ position:"absolute", top:0, bottom:0, left:l+"%", width:w+"%", background:colors[ci%colors.length], display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:700, color:"#fff", borderRadius: ci===0?"6px 0 0 6px": ci===row.columns.length-1?"0 6px 6px 0":"0", overflow:"hidden", outline: isSelected?"2px solid #111827":"none", outlineOffset:-2, zIndex: isSelected?1:0 }}>
+            <div key={col.id} style={{ position:"absolute", top:0, bottom:0, left:l+"%", width:w+"%", background:colors[ci%colors.length], display:"flex", alignItems:"center", justifyContent:"center", fontSize: row.columns.length > 6 ? 10 : 14, fontWeight:700, color:"#fff", borderRadius: ci===0?"6px 0 0 6px": ci===row.columns.length-1?"0 6px 6px 0":"0", overflow:"hidden", outline: isSelected?"2px solid #111827":"none", outlineOffset:-2, zIndex: isSelected?1:0 }}>
               {+w.toFixed(1)}%
               {ci < row.columns.length-1 && (
                 <div onMouseDown={e=>{e.stopPropagation();startColDrag(e,ci,row);}}
@@ -5556,7 +5556,7 @@ function ColumnWidthBar({ row, startColDrag, selectedColId, onEqualize }) {
       </div>
       <div style={{ display:"flex", fontSize:14, color:"#6b7280", gap:4 }}>
         {row.columns.map((col,ci) => (
-          <div key={col.id} style={{ flex:1, textAlign:"center", fontWeight: col.id===selectedColId?700:400, color: col.id===selectedColId?"#111827":"#6b7280" }}>Col {ci+1}</div>
+          <div key={col.id} style={{ flex:1, textAlign:"center", fontSize: row.columns.length > 6 ? 10 : undefined, fontWeight: col.id===selectedColId?700:400, color: col.id===selectedColId?"#111827":"#6b7280" }}>Col {ci+1}</div>
         ))}
       </div>
       {onEqualize && (
@@ -8917,7 +8917,7 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
                     onDeleteColumn={onDeleteColumn}
                   />
                 )}
-                {selectedRow.columns.length < 6 && (
+                {selectedRow.columns.length < 10 && (
                   <button onClick={() => onAddColumn(selectedRow.id)} title="Add column"
                     style={{ flex: selectedRow.columns.length > 1 ? "0 0 30px" : 1, width: selectedRow.columns.length > 1 ? 30 : "auto", height:30, boxSizing:"border-box", padding: selectedRow.columns.length > 1 ? 0 : "0 2px", fontSize:14, fontWeight:700, borderRadius:5, cursor:"pointer", border:"1px solid #bfdbfe", background:"#eff6ff", color:"#1d4ed8", fontFamily:"inherit", display:"flex", alignItems:"center", justifyContent:"center", gap:3 }}>
                     <Icon name="add" size={15} color="#1d4ed8" />
