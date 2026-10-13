@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo, Fragment } from "react";
 import { collection, onSnapshot, addDoc, serverTimestamp, doc, getDoc, setDoc, getDocs, deleteDoc } from "firebase/firestore";
+import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 import { db, auth } from "./firebase.js";
 
 // The single account allowed to use admin authoring controls and to publish
@@ -14,7 +15,7 @@ const ADMIN_UID = "1idnAdK800UUzg7xW9hmH76OgH82";
 // the same list in the Firestore rules (firestore.rules) so it's actually
 // enforced, not just hidden in the UI. When you're ready to open access to all
 // @compass.com users, set ALLOWLIST_ENABLED to false here and relax the rules.
-const ALLOWLIST_ENABLED = true;
+const ALLOWLIST_ENABLED = false;
 const ALLOWED_EMAILS = [
   "janie.houlgrave@compass.com",
   "amy.peery@compass.com",
@@ -29,7 +30,45 @@ const ALLOWED_EMAILS = [
   "ariel.mantilla@compass.com",
   "natalie.robinson@compass.com",
   "britany.scruton@compass.com",
+  "ashley.vogel@compass.com",
+  "fernando.lopez@compass.com",
+  "albaseva@compass.com",
+  "donaldgray@compass.com",
+  "claudia.bove@compass.com",
+  "nicole.milanovic@compass.com",
+  "patrick.selba@compass.com",
+  "derek.disabatino@compass.com",
+  "alex.mcdowell@compass.com",
+  "ilyse.lipman@compass.com",
   "ameliaharris@compass.com",
+  "kathleen.walsh@compass.com",
+  "jessica.tan@compass.com",
+  "skylar.herrle@compass.com",
+  "alex.asmar@compass.com",
+  "alexisloren.coballes@compass.com",
+  "erika.sheridan@compass.com",
+  "alexandra.wardell@compass.com",
+  "alysa.ibrahimovic@compass.com",
+  "ashlyn.temples@compass.com",
+  "carolinestroebel@compass.com",
+  "christopher.edwards@compass.com",
+  "christian.duffie@compass.com",
+  "davante.falls@compass.com",
+  "libby.greene@compass.com",
+  "emma.johnston@compass.com",
+  "eric.loya@compass.com",
+  "hailey.jones@compass.com",
+  "kiah.seymour@compass.com",
+  "laura.agudelo@compass.com",
+  "meade.dadkhah@compass.com",
+  "michaelperez@compass.com",
+  "mollie.black@compass.com",
+  "nicole.hannon@compass.com",
+  "samantha.eidsness@compass.com",
+  "isabella.perdichizzi@compass.com",
+  "savannah.melson@compass.com",
+  "ty.new@compass.com",
+  "yasminaabby.aswad@compass.com",
 ];
 function isEmailAllowed(email) {
   if (!ALLOWLIST_ENABLED) return true;
@@ -93,6 +132,48 @@ function buildLinkHref(linkType, value) {
   if (linkType === "email") return /^mailto:/i.test(v) ? v : "mailto:" + v;
   if (linkType === "phone") return /^tel:/i.test(v) ? v : "tel:" + v.replace(/[^\d+]/g, "");
   return ensureHref(v);
+}
+
+function escapeHtml(str) {
+  return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+// Plain Text elements can now have a link applied to just PART of their
+// text (select a few words, link only those) instead of only the whole
+// element. That means el.content can contain a real embedded <a> tag now,
+// not just plain text -- so it's synced via the DOM's innerHTML rather than
+// textContent/innerText. But contentEditable divs happily accumulate all
+// sorts of other tags too (typing can insert <div>/<br>, pasting can bring
+// in <b>/<span>/<font>/inline styles from wherever it came from), and none
+// of that is something this app's rendering or styling model supports --
+// every other style choice here (bold, color, font) is a whole-element CSS
+// property, not per-character rich text. So on every sync, this strips
+// everything down to plain text plus ONLY <a href="..."> tags rebuilt with
+// our own minimal, known-safe attributes -- nothing pasted-in ever survives
+// as executable markup or unexpected formatting.
+function sanitizeInlineLinkHtml(html) {
+  if (!html) return "";
+  const tmp = document.createElement("div");
+  tmp.innerHTML = html;
+  function walk(node) {
+    let out = "";
+    node.childNodes.forEach(child => {
+      if (child.nodeType === 3) {
+        out += child.textContent;
+      } else if (child.nodeType === 1) {
+        if (child.tagName === "A" && child.getAttribute("href")) {
+          const href = child.getAttribute("href").replace(/"/g, "&quot;");
+          out += `<a href="${href}" style="color:inherit;text-decoration:underline;">${walk(child)}</a>`;
+        } else if (child.tagName === "BR" || child.tagName === "DIV" || child.tagName === "P") {
+          out += " " + walk(child);
+        } else {
+          out += walk(child);
+        }
+      }
+    });
+    return out;
+  }
+  return walk(tmp).replace(/\s+/g, " ").trim();
 }
 
 function interpolate(text, profile) {
@@ -2015,7 +2096,14 @@ function computeLineHeightPx(fontSize, lineHeight) {
   return `${Math.round(fSizeNum * 1.2)}px`;
 }
 
-function renderElementInner(el, profile, forCanvas) {
+// Exact equal share for N columns, as a decimal percentage (e.g. 6 columns =
+// 16.6667% each) so columns are truly even instead of being rounded to whole
+// percents with the leftover dumped on the last column.
+function equalColPct(n) {
+  return (n > 0 ? +(100 / n).toFixed(4) : 100) + "%";
+}
+
+function renderElementInner(el, profile, forCanvas, colMaxPx) {
   const s = el.style || {};
   const fSize = s.fontSize || "11px";
   const fColor = s.color || "#000000";
@@ -2052,6 +2140,10 @@ function renderElementInner(el, profile, forCanvas) {
   // photos, badges, buttons, dividers) rather than just text-like ones.
   const bgCss = s.backgroundColor ? `background:${s.backgroundColor};` : "";
   const borderCss = s.borderWidth ? `border:${s.borderWidth} ${s.borderStyle||"solid"} ${s.borderColor||"#e5e7eb"};` : "";
+  // Corner Radius was captured from the panel into s.borderRadius but never
+  // actually made it into the rendered style at all -- the field looked like
+  // it did nothing because, for text-like elements, it genuinely did nothing.
+  const radiusCss = s.borderRadius ? `border-radius:${s.borderRadius};` : "";
   const lineHeightPx = computeLineHeightPx(fSize, s.lineHeight);
   // Spacing between lines now lives entirely in td padding-bottom, not div
   // margin. This is the standard technique professional signature tools
@@ -2060,35 +2152,96 @@ function renderElementInner(el, profile, forCanvas) {
   // margins, which is exactly the category of quirk (stripped/altered
   // properties, inconsistent collapsing) we kept running into with divs.
   const cellBottomPad = s.marginBottom || "0px";
-  const baseStyle = `font-family:${ff};font-size:${fSize};color:${fColor};font-weight:${fw};${s.textAlign?'text-align:'+s.textAlign+';':''}${s.textTransform?'text-transform:'+s.textTransform+';':''}${s.letterSpacing?'letter-spacing:'+s.letterSpacing+';':''}line-height:${lineHeightPx};${s.fontStyle?'font-style:'+s.fontStyle+';':''}${s.textDecoration&&s.textDecoration!=='none'?'text-decoration:'+s.textDecoration+';':''}padding:0 0 ${cellBottomPad} 0;mso-padding-alt:0 0 ${cellBottomPad} 0;${bgCss}${borderCss}`;
+  // Top/Left/Right padding is intentionally NOT included here -- there's a
+  // separate, pre-existing "universal padding" wrapper (see padCss/dropHPad
+  // further down) that already applies Padding Top/Left/Right/Bottom around
+  // EVERY element type uniformly (text, photos, badges, buttons...), by
+  // original design, specifically so it only has to be handled in one place
+  // rather than duplicated inside each element type's own render branch.
+  // A previous fix here added paddingTop/Left/Right into baseStyle too,
+  // apparently not realizing that wrapper already existed -- which meant
+  // text elements got Left/Right/Top padding applied TWICE: once from the
+  // wrapper, once from here, stacking into double the intended offset
+  // (confirmed directly: a 23px Padding Left setting was rendering as a
+  // real 46px gap in the exported HTML). cellBottomPad (bottom only) stays,
+  // since it reads a different key (s.marginBottom) than the wrapper's own
+  // bottom source (s.paddingBottom) and was never part of this duplication.
+  const baseStyle = `font-family:${ff};font-size:${fSize};color:${fColor};font-weight:${fw};${s.textAlign?'text-align:'+s.textAlign+';':''}${s.textTransform?'text-transform:'+s.textTransform+';':''}${s.letterSpacing?'letter-spacing:'+s.letterSpacing+';':''}line-height:${lineHeightPx};${s.fontStyle?'font-style:'+s.fontStyle+';':''}${s.textDecoration&&s.textDecoration!=='none'?'text-decoration:'+s.textDecoration+';':''}padding:0 0 ${cellBottomPad} 0;mso-padding-alt:0 0 ${cellBottomPad} 0;${bgCss}${borderCss}${radiusCss}`;
   // Wraps a line of text in its own single-row, single-cell table -- the
   // email-safe equivalent of a <div>, but immune to the div-stacking quirks
   // Gmail's paste sanitizer applies inconsistently.
+  // Centralized here instead of per-element-type: every Smart Field (Name,
+  // Title, Phone, Email, Address, etc.) already routes through this one
+  // function to build its output row, same as plain Text elements do. Link
+  // support used to live only in the "text" case below, which meant a
+  // hyperlink could only ever be added to a generic Text block -- not to any
+  // Smart Field, even though the property panel's Link control has always
+  // been offered per-element without restricting which types could use it.
+  // Putting it here once makes every field type support it automatically.
   function textLine(content) {
-    return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;width:100%;"><tr><td style="${baseStyle}">${content}</td></tr></table>`;
+    // A Text element can now have a link on just part of its text (an
+    // embedded <a> already inside `content`, from the inline selection
+    // popup) as well as the old whole-element link (el.linkType). Wrapping
+    // the whole thing in a second <a> when one's already embedded would
+    // nest anchors, which is invalid HTML and unpredictable across email
+    // clients -- so the whole-element wrap only applies when there's no
+    // partial link already inside the content itself.
+    const hasEmbeddedLink = /<a\s/i.test(content);
+    const href = (!hasEmbeddedLink && el.linkType) ? buildLinkHref(el.linkType, el.linkUrl) : "";
+    const inner = href ? `<a href="${href}" style="color:inherit;text-decoration:inherit;">${content}</a>` : content;
+    return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;width:100%;"><tr><td style="${baseStyle}">${inner}</td></tr></table>`;
   }
 
   if (el.type === "text") {
-    const content = interpolate(el.content || "", profile);
-    const href = el.linkType ? buildLinkHref(el.linkType, el.linkUrl) : "";
-    if (href) {
-      return textLine(`<a href="${href}" style="color:inherit;text-decoration:inherit;">${content}</a>`);
-    }
-    return textLine(content);
+    return textLine(interpolate(el.content || "", profile));
   }
   if (el.type === "image") {
     const src = el.content || "";
-    const br = s.borderRadius ? `border-radius:${s.borderRadius};` : "";
+    // Same Shape + per-corner radius model as headshots: Circle is a true
+    // circle/oval (radius 50%), otherwise the four per-corner fields apply,
+    // falling back to the old single borderRadius for images styled before
+    // those controls existed.
+    const isCircle = s.imageShape === "circle";
+    const hasCorner = s.borderRadiusTL||s.borderRadiusTR||s.borderRadiusBL||s.borderRadiusBR;
+    const brVal = isCircle ? "50%"
+      : hasCorner ? `${s.borderRadiusTL||"0px"} ${s.borderRadiusTR||"0px"} ${s.borderRadiusBR||"0px"} ${s.borderRadiusBL||"0px"}`
+      : (s.borderRadius || "");
+    const br = brVal ? `border-radius:${brVal};` : "";
     const bdr = s.borderWidth ? `border:${s.borderWidth} ${s.borderStyle||"solid"} ${s.borderColor||"#e5e7eb"};` : "";
     const bg = s.backgroundColor ? `background:${s.backgroundColor};` : "";
     if (!src) return `<div style="width:100%;min-height:80px;${bg}border:1px dashed #d1d5db;${br}display:flex;align-items:center;justify-content:center;font-size:11px;color:#9ca3af;">Click to choose image</div>`;
-    const imgW = s.width || "100%";
-    const imgH = s.height || "auto";
-    // The container now matches the image's own intended width instead of
-    // always being 100% -- otherwise shrinking the Width field only resized
-    // the <img> itself while its surrounding box (and click/selection area)
-    // stayed full-width, making a resize look like it wasn't doing anything.
-    return `<div style="margin:0;line-height:0;font-size:0;width:${imgW};max-width:100%;overflow:hidden;${br}${bdr}${bg}"><img src="${src}" style="width:100%;height:${imgH};object-fit:${s.objectFit||"cover"};display:block;" /></div>`;
+    let imgW = s.width || "100%";
+    let imgH = s.height || "auto";
+    // A circle needs equal width and height while dimensions are locked;
+    // unlocking is how you deliberately get an oval (same rule as headshots).
+    const isLocked = s.sizeLocked !== "false";
+    if (isCircle && isLocked && /px$/i.test(String(imgW))) imgH = imgW;
+    const bothPx = /px$/i.test(String(imgW)) && /px$/i.test(String(imgH));
+    let wNum = parseFloat(imgW) || 0;
+    let hNum = parseFloat(imgH) || 0;
+    // EXPORT only: when the column is narrower than the image's pixel size,
+    // scale width and height down together (keeping the shape true) so the
+    // content fits the column rather than the column stretching to fit it.
+    if (bothPx && !forCanvas && colMaxPx && wNum > colMaxPx) {
+      hNum = Math.round(hNum * colMaxPx / wNum);
+      wNum = Math.floor(colMaxPx);
+      imgW = wNum + "px"; imgH = hNum + "px";
+    }
+    const imgBox = `box-sizing:border-box;${br}${bdr}${bg}`;
+    if (bothPx) {
+      const sizing = forCanvas
+        ? `width:100%;height:auto;aspect-ratio:${wNum}/${hNum};`
+        : `width:100%;height:${imgH};`;
+      // Export: hard pixel box + overflow hidden on the wrapper so the image
+      // stays clipped to its intended size even if Gmail strips the <img>'s
+      // own sizing on forward (same protection headshots have).
+      const wrap = forCanvas ? `width:${imgW};max-width:100%;` : `width:${imgW};height:${imgH};overflow:hidden;`;
+      return `<div style="margin:0;line-height:0;font-size:0;${wrap}"><img src="${src}" width="${wNum}" height="${hNum}" style="${sizing}${imgBox}object-fit:${s.objectFit||"cover"};display:block;" /></div>`;
+    }
+    // The container matches the image's own intended width instead of always
+    // being 100% -- otherwise shrinking Width only resized the <img> itself
+    // while its surrounding box stayed full-width.
+    return `<div style="margin:0;line-height:0;font-size:0;width:${imgW};max-width:100%;"><img src="${src}" style="width:100%;height:${imgH};${imgBox}object-fit:${s.objectFit||"cover"};display:block;" /></div>`;
   }
   if (el.type === "badges") {
     const count = parseInt(s.badgeCount) || 4;
@@ -2097,15 +2250,46 @@ function renderElementInner(el, profile, forCanvas) {
     const sizeNum = parseInt(size) || 60;
     const cells = Array.from({length: count}).map((_, i) => {
       const src = s[`badge_${i}`] || "";
+      const link = s[`badgeLink_${i}`] || "";
       // Outlook has zero support for flexbox/gap/justify-content, so spacing
       // between badges is applied per-badge via margin-right instead of a
       // container gap, and alignment uses text-align on the container (which
       // works with these inline-block children in every email client).
       const mr = i < count-1 ? `margin-right:${gap};` : "";
       if (src) {
-        return `<img src="${src}" width="${sizeNum}" height="${sizeNum}" style="width:${size};height:${size};object-fit:contain;display:inline-block;${mr}" />`;
+        // Badge Size sets a fixed WIDTH slot for every badge -- height is
+        // computed per-badge from that image's own real aspect ratio
+        // (captured at upload time), so a wide horizontal networking-group
+        // logo renders at its natural proportions next to a square
+        // certification seal, instead of being squeezed/letterboxed into
+        // the same square everything used to be forced into.
+        //
+        // This used to be the other way around (fixed HEIGHT, computed
+        // width) -- reasonable in isolation, but it meant a badge with an
+        // elongated aspect ratio (a stretched-out wordmark logo, say)
+        // computed a huge width to hit that fixed height, blew past the
+        // available row width, and wrapped onto its own line instead of
+        // sitting in the row with everything else. Fixing the WIDTH instead
+        // guarantees every badge always fits the row it's laid out for
+        // (count x badgeSize + gaps, same total either way) -- it's the
+        // row's HEIGHT that varies per badge now, shrinking to whatever
+        // that image's own proportions need at that fixed width, rather
+        // than the row's WIDTH varying and risking overflow. Falls back to
+        // 1 (square) for any badge uploaded before this existed and never
+        // got an aspect ratio stored.
+        const aspect = parseFloat(s[`badgeAspect_${i}`]) || 1;
+        const heightNum = Math.max(1, Math.round(sizeNum / aspect));
+        const img = `<img src="${src}" width="${sizeNum}" height="${heightNum}" style="width:${size};height:${heightNum}px;object-fit:contain;display:inline-block;vertical-align:middle;${link?"":mr}" />`;
+        // Each badge can link out on its own (e.g. to a certification page or
+        // a Compass program's landing page) independent of any other element
+        // on the signature. The margin-right for spacing moves onto the <a>
+        // itself when a link is set, since it's now the actual inline-block
+        // element sitting in the row -- leaving it on the <img> inside would
+        // just collapse to zero-width spacing between the anchors.
+        if (link) return `<a href="${ensureHref(link)}" target="_blank" style="display:inline-block;vertical-align:middle;text-decoration:none;${mr}">${img}</a>`;
+        return img;
       }
-      return `<div style="width:${size};height:${size};border:1.5px dashed #d1d5db;border-radius:6px;display:inline-block;text-align:center;line-height:${size};font-size:9px;color:#9ca3af;font-family:sans-serif;${mr}">Badge ${i+1}</div>`;
+      return `<div style="width:${size};height:${size};border:1.5px dashed #d1d5db;border-radius:6px;display:inline-block;vertical-align:middle;text-align:center;line-height:${size};font-size:9px;color:#9ca3af;font-family:sans-serif;${mr}">Badge ${i+1}</div>`;
     });
     const align = s.textAlign || "left";
     return `<div style="text-align:${align};margin-top:0;margin-bottom:4px;mso-margin-top-alt:0;mso-margin-bottom-alt:4px;">${cells.join("")}</div>`;
@@ -2143,17 +2327,26 @@ function renderElementInner(el, profile, forCanvas) {
         // become a rectangle: set width and height to different values and the shape
         // preset still applies. object-fit:cover crops to fill the box without
         // squishing; max-width guards against overflow past a narrow column.
-        // For a SQUARE shape, width and height are fully independent (that's how
-        // you make a rectangle). For a CIRCLE, though, an unequal box renders as
-        // an oval, which is almost never what someone wants when they pick
-        // "Circle" -- and stray unequal values can sneak in from templates or an
-        // unlinked width/height edit. So when the shape is circle we force the
-        // height to match the width, guaranteeing an actual round circle. Users
-        // who genuinely want an oval can use Square with a 50% corner radius.
-        const w = s.width || "90px";
-        const h = isCircle ? w : (s.height || "90px");
-        const wNum = parseInt(w) || 90;
-        const hNum = parseInt(h) || 90;
+        // Height only gets force-matched to width for a CIRCLE while dimensions
+        // are still LOCKED (the normal/default state) -- that's what keeps a
+        // circle round if a template or an accidental edit sneaks in an unequal
+        // value nobody meant. Unlocking dimensions is a deliberate choice to
+        // size width/height independently, and for a circle that's exactly how
+        // you get an oval -- forcing h=w even after unlocking defeated that
+        // entirely (unlock, raise the height, and it silently stayed a circle).
+        const isLocked = s.sizeLocked !== "false";
+        let w = s.width || "90px";
+        let h = (isCircle && isLocked) ? w : (s.height || "90px");
+        let wNum = parseInt(w) || 90;
+        let hNum = parseInt(h) || 90;
+        // EXPORT only: if the column is narrower than the photo, scale the
+        // photo down (both dimensions together, so a circle stays round)
+        // instead of letting the column grow to fit it.
+        if (!forCanvas && colMaxPx && wNum > colMaxPx && !String(w).includes("%")) {
+          hNum = Math.round(hNum * colMaxPx / wNum);
+          wNum = Math.floor(colMaxPx);
+          w = wNum + "px"; h = hNum + "px";
+        }
         // Sizing lives directly on the <img> itself now -- both the HTML
         // width/height attributes (essential for Outlook, which frequently
         // ignores CSS sizing on <img> and falls back to these) AND matching
@@ -2186,7 +2379,22 @@ function renderElementInner(el, profile, forCanvas) {
         const photoResponsiveStyle = forCanvas
           ? `max-width:100%;height:auto;aspect-ratio:${wNum}/${hNum};`
           : `height:${h};`;
-        return `<div style="display:block;line-height:0;font-size:0;mso-margin-top-alt:0;mso-margin-bottom-alt:0;"><img src="${src}" width="${wNum}" height="${hNum}" style="width:${w};${photoResponsiveStyle}box-sizing:border-box;border-radius:${br};${bdr}object-fit:${s.objectFit||"cover"};display:block;" referrerpolicy="no-referrer" /></div>`;
+        // The wrapping <div> now also carries a hard pixel width/height plus
+        // overflow:hidden, for the EXPORT path only -- discovered this is
+        // necessary after finding that Gmail's FORWARD action (a different,
+        // more aggressive pass than the Settings-save one that only dropped
+        // object-fit) strips EVERY sizing attribute off the <img> itself:
+        // no width, no height, not even a style attribute survives, and
+        // Gmail re-hosts the image through its own fimg URL in the process.
+        // With nothing left on the img, the browser renders it at full
+        // native pixel size -- and since this is exported at 2x resolution
+        // for retina sharpness, that's often much bigger than intended,
+        // which is what caused the overlapping/jumbled layout. A sibling
+        // <img> losing its own attributes doesn't touch this wrapping div's
+        // attributes, so a hard size + overflow:hidden here gives the image
+        // somewhere to get physically clipped even after Gmail guts it.
+        const containerStyle = forCanvas ? "" : `width:${w};height:${h};overflow:hidden;`;
+        return `<div style="display:block;line-height:0;font-size:0;${containerStyle}mso-margin-top-alt:0;mso-margin-bottom-alt:0;"><img src="${src}" width="${wNum}" height="${hNum}" style="width:${w};${photoResponsiveStyle}box-sizing:border-box;border-radius:${br};${bdr}object-fit:${s.objectFit||"cover"};display:block;" referrerpolicy="no-referrer" /></div>`;
       }
       case "logo": {
         const src = s.croppedSrc || profile.logoUrl || "";
@@ -2205,9 +2413,16 @@ function renderElementInner(el, profile, forCanvas) {
       }
       // Convert ^text^ to superscript HTML, and (R) to ® -- applySup is
       // defined at the top of this function now, see comment there.
-      case "name": { const nameVal = applySup(profile.name||"Your Name"); return textLine(nameVal); }
-      case "title": return textLine(profile.title||"Realtor®");
-      case "company": return textLine(profile.company||"Compass");
+      // Every one of these now checks el.content first -- that's what
+      // storing an Autofill-off override in the element itself (instead of
+      // a separate profile-keyed object) actually buys: this same one-line
+      // change is all a Smart Field needs to inherit a manual override,
+      // whether or not it happens to also have special default-link
+      // behavior (email/website) or its own auto-compute logic (phones,
+      // just below, which already worked this way).
+      case "name": { const nameVal = applySup(el.content || profile.name||"Your Name"); return textLine(nameVal); }
+      case "title": return textLine(el.content || profile.title||"Realtor®");
+      case "company": return textLine(el.content || profile.company||"Compass");
       case "phones": {
         // Combines mobile + office phone into one auto-formatted line, pulled
         // live from the profile by default -- but since this element is now
@@ -2223,19 +2438,34 @@ function renderElementInner(el, profile, forCanvas) {
         else phoneText = "Mobile: (555) 000-0000 | Office: (555) 000-0000";
         return textLine(phoneText);
       }
-      case "phone": return textLine(profile.phone||"(555) 000-0000");
-      case "mobile": return textLine(profile.mobile||"(555) 000-0000");
-      case "email": return textLine(`<a href="mailto:${profile.email}" style="color:${fColor};text-decoration:none;">${profile.email||"you@compass.com"}</a>`);
+      case "phone": return textLine(el.content || profile.phone||"(555) 000-0000");
+      case "mobile": return textLine(el.content || profile.mobile||"(555) 000-0000");
+      // Both of these default to their own sensible link (mailto:/website
+      // URL) when nobody's touched the Link control -- but if a custom link
+      // HAS been set via the panel, or el.content holds an Autofill-off
+      // manual override (which may itself contain its own inline link from
+      // the selection popup), that takes over instead. Without this check,
+      // textLine's own wrapping (now shared across all Smart Fields) would
+      // nest a second <a> inside this one's default <a>, which is invalid
+      // HTML and would just render the outer link, silently ignoring
+      // whatever custom link/phone/email the person actually chose.
+      case "email":
+        if (el.content) return textLine(el.content);
+        if (el.linkType) return textLine(profile.email||"you@compass.com");
+        return textLine(`<a href="mailto:${profile.email}" style="color:${fColor};text-decoration:none;">${profile.email||"you@compass.com"}</a>`);
       case "website": {
+        if (el.content) return textLine(el.content);
         const wsite = profile.website || "compass.com";
+        if (el.linkType) return textLine(wsite);
         return textLine(`<a href="${ensureHref(profile.website||"compass.com")}" style="color:${fColor};text-decoration:none;">${wsite}</a>`);
       }
-      case "address": return textLine(profile.address||"123 Main St");
-      case "bio": return textLine(profile.bio||"");
+      case "address": return textLine(el.content || profile.address||"123 Main St");
+      case "bio": return textLine(el.content || profile.bio||"");
       case "social": {
         const socialStyle = s.socialStyle || "colored";
         const iconSize = parseInt(s.iconSize) || 16;
         const iconGap = parseInt(s.socialGap) || 5;
+        const layout = s.socialLayout === "vertical" ? "vertical" : "horizontal";
         const svgSz = Math.round(iconSize * 0.6);
         const hidden = s.hiddenSocials ? s.hiddenSocials.split(",") : [];
 
@@ -2282,6 +2512,16 @@ function renderElementInner(el, profile, forCanvas) {
         const visibleSocials = allSocials.filter(soc => soc.url && soc.url.trim() && !hidden.includes(soc.key));
         if (visibleSocials.length === 0) return `<div style="color:#9ca3af;font-size:11px;font-family:sans-serif;">No social links set in profile</div>`;
 
+        // Horizontal lays icons out left-to-right with margin-right between
+        // them (the original/default layout). Vertical stacks them
+        // top-to-bottom instead, using margin-bottom for the gap and
+        // display:block so each one drops to its own line rather than
+        // wrapping inline. Both share iconGap (the same Icon Spacing
+        // control in the panel governs whichever direction is active).
+        const itemStyle = layout === "vertical"
+          ? `display:block;width:${iconSize}px;height:${iconSize}px;line-height:0;font-size:0;overflow:hidden;text-decoration:none;margin-bottom:${iconGap}px;`
+          : `display:inline-block;width:${iconSize}px;height:${iconSize}px;line-height:0;font-size:0;overflow:hidden;text-decoration:none;margin-right:${iconGap}px;`;
+
         const btns = visibleSocials.map(soc => {
           const customSrc = s[`customIcon_${soc.key}`];
           const src = customSrc || (
@@ -2289,12 +2529,12 @@ function renderElementInner(el, profile, forCanvas) {
             socialStyle === "black"   ? (blackImgs[soc.key]   || blackImgs.website)   :
                                         (whiteImgs[soc.key]   || whiteImgs.website)
           );
-          return `<a href="${ensureHref(soc.url)}" target="_blank" style="display:inline-block;width:${iconSize}px;height:${iconSize}px;line-height:0;font-size:0;overflow:hidden;text-decoration:none;margin-right:${iconGap}px;"><img src="${src}" width="${iconSize}" height="${iconSize}" style="display:block;vertical-align:bottom;border:none;" /></a>`;
+          return `<a href="${ensureHref(soc.url)}" target="_blank" style="${itemStyle}"><img src="${src}" width="${iconSize}" height="${iconSize}" style="display:block;vertical-align:bottom;border:none;" /></a>`;
         }).join("");
         const customLinks = (() => { try { return JSON.parse(s.customLinks || "[]"); } catch { return []; } })();
         const customBtns = customLinks.filter(l=>l.url&&l.url.trim()).map(l => {
-          if (l.iconUrl) return `<a href="${ensureHref(l.url)}" target="_blank" title="${l.label||""}" style="display:inline-block;width:${iconSize}px;height:${iconSize}px;line-height:0;font-size:0;overflow:hidden;text-decoration:none;margin-right:${iconGap}px;"><img src="${l.iconUrl}" width="${iconSize}" height="${iconSize}" style="display:block;vertical-align:bottom;border:none;" /></a>`;
-          return `<a href="${ensureHref(l.url)}" target="_blank" style="display:inline-flex;align-items:center;justify-content:center;width:${iconSize}px;height:${iconSize}px;border-radius:50%;background:#374151;color:#fff;text-decoration:none;margin-right:${iconGap}px;font-size:10px;font-family:sans-serif;">${(l.label||"?").slice(0,2).toUpperCase()}</a>`;
+          if (l.iconUrl) return `<a href="${ensureHref(l.url)}" target="_blank" title="${l.label||""}" style="${itemStyle}"><img src="${l.iconUrl}" width="${iconSize}" height="${iconSize}" style="display:block;vertical-align:bottom;border:none;" /></a>`;
+          return `<a href="${ensureHref(l.url)}" target="_blank" style="${layout === "vertical" ? `display:flex;` : `display:inline-flex;`}align-items:center;justify-content:center;width:${iconSize}px;height:${iconSize}px;border-radius:50%;background:#374151;color:#fff;text-decoration:none;${layout === "vertical" ? `margin-bottom:${iconGap}px;` : `margin-right:${iconGap}px;`}font-size:10px;font-family:sans-serif;">${(l.label||"?").slice(0,2).toUpperCase()}</a>`;
         }).join("");
         // display:inline-block makes this row shrink-wrap its icons instead of
         // stretching to the full column width. That fixes the canvas selection
@@ -2303,7 +2543,11 @@ function renderElementInner(el, profile, forCanvas) {
         // It's also correct for export: a shrink-wrapped inline-block row of
         // icons is standard, and it lets the align wrapper's text-align actually
         // center/right-position the icons (a full-width block ignored it).
-        return `<div style="display:inline-block;height:${iconSize}px;line-height:0;font-size:0;padding-top:${s.paddingTop||'0px'};margin-top:0;margin-bottom:${s.marginBottom||'0px'};mso-padding-alt:${s.paddingTop||'0px'} 0 0 0;mso-margin-top-alt:0;mso-margin-bottom-alt:${s.marginBottom||'0px'};">${btns}${customBtns}</div>`;
+        // A fixed height only makes sense for horizontal (one row tall);
+        // vertical needs to grow with however many icons are stacked, so it's
+        // left to size naturally instead of being pinned to a single icon's height.
+        const wrapperHeight = layout === "vertical" ? "" : `height:${iconSize}px;`;
+        return `<div style="display:inline-block;${wrapperHeight}line-height:0;font-size:0;padding-top:${s.paddingTop||'0px'};margin-top:0;margin-bottom:${s.marginBottom||'0px'};mso-padding-alt:${s.paddingTop||'0px'} 0 0 0;mso-margin-top-alt:0;mso-margin-bottom-alt:${s.marginBottom||'0px'};">${btns}${customBtns}</div>`;
       }
       default: return textLine(interpolate("{{"+el.subtype+"}}", profile));
     }
@@ -2311,8 +2555,8 @@ function renderElementInner(el, profile, forCanvas) {
   return "";
 }
 
-function renderElementHTML(el, profile, forCanvas) {
-  const inner = renderElementInner(el, profile, forCanvas);
+function renderElementHTML(el, profile, forCanvas, colMaxPx) {
+  const inner = renderElementInner(el, profile, forCanvas, colMaxPx);
   const s = el.style || {};
   const align = s.align || null;
   const isImg = el.type === "image" || (el.type === "dynamic" && (el.subtype === "photo" || el.subtype === "logo" || el.subtype === "personalLogo"));
@@ -2368,32 +2612,46 @@ function generateSigHTML(sig, profile) {
       rs.backgroundImage ? `background-image:url('${rs.backgroundImage}');background-size:${rs.backgroundSize==="repeat"?"auto":(rs.backgroundSize||"cover")};background-repeat:${rs.backgroundSize==="repeat"?"repeat":"no-repeat"};background-position:center;` : "",
     ].filter(Boolean).join(";");
     html += `<tr><td style="${rStyle};padding:${rs.paddingTop||"0px"} 0 ${rs.paddingBottom||"0px"} 0;"><table cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;table-layout:fixed;"><tr>`;
-    row.columns.forEach(col => {
+    row.columns.forEach((col, ci) => {
       const cs = col.style || {};
-      // If this column holds a photo, give it an explicit pixel width
-      // (photo size + its own padding) instead of a percentage -- min-width
-      // was the first attempt at this, but table-layout:fixed frequently
-      // does NOT honor min-width on cells at all (confirmed via direct
-      // browser measurement: a cell with min-width:166px still rendered at
-      // ~146px in practice). An explicit pixel width, however, IS reliably
-      // honored under fixed layout, since it's the table's actual primary
-      // sizing mechanism rather than a secondary override layered on top
-      // of a percentage. This is what was letting a circular photo render
-      // as an oval whenever the table itself was narrower than its full
-      // design width (Dashboard preview cards, Gmail/Outlook re-rendering).
-      const photoEl = col.elements.find(el => el.type === "dynamic" && el.subtype === "photo");
-      const photoSize = photoEl ? (String(photoEl.style?.width||"").includes("%") ? 90 : (parseInt(photoEl.style?.width) || 90)) : null;
-      // A border on the photo now sits INSIDE its box (box-sizing:border-box),
-      // so it does not add to the photo's footprint -- the column width only
-      // needs to match the photo width, and the circle/shape stays true even
-      // at max column width with a thick border.
+      // Column widths come ONLY from the column itself (equal by default,
+      // or whatever was set manually) -- never from what's inside it. A
+      // photo used to force its column to the photo's pixel size, which
+      // made columns change width depending on content. Content now scales
+      // down to fit its column instead (see colMaxPx below).
       const padL = cs.paddingLeft ? parseInt(cs.paddingLeft) || 0 : 0;
       const padR = cs.paddingRight ? parseInt(cs.paddingRight) || 0 : 0;
-      const w = photoSize ? `${photoSize + padL + padR}px` : (cs.width || `${Math.floor(100/row.columns.length)}%`);
+      const nCols = row.columns.length;
+      const w = cs.width || equalColPct(nCols);
+      const gutterPx = ci > 0 ? (rs.columnGap ? (parseInt(rs.columnGap) || 0) : 10) : 0;
+      const wNumCol = parseFloat(w) || 0;
+      const colOuterPx = /%$/.test(String(w)) ? 560 * wNumCol / 100 : wNumCol;
+      const colMaxPx = colOuterPx ? Math.max(20, colOuterPx - padL - padR - gutterPx) : null;
       const cStyle = [
         `vertical-align:${cs.verticalAlign||"top"}`,
         `width:${w}`,
-        cs.paddingLeft ? `padding-left:${cs.paddingLeft}` : "",
+        // Column Gap (the spacing between columns) was only ever applied on
+        // the live canvas -- this export path never read row.style.columnGap
+        // at all, so every actual copied/shared/pasted signature rendered
+        // its columns flush against each other with zero gap, no matter
+        // what was set in the panel. Combined additively with the column's
+        // own configured left padding (not replacing it) so both a
+        // deliberate column padding AND the inter-column gap apply together.
+        (() => {
+          // Checks rs.columnGap ITSELF for truthiness before parsing, not
+          // the parsed number -- parseInt("0px") is the number 0, and
+          // `0 || 10` evaluates to 10 in JS, since a numeric zero is
+          // falsy. That silently replaced an intentional "set the gap to
+          // 0" with the 10px default, which is exactly why 0 rendered as
+          // 10px in the actual exported/shared signature while the
+          // editor (which checks the raw string "0px", a non-empty and
+          // therefore truthy value, before ever parsing it) correctly
+          // showed 0.
+          const gutter = ci > 0 ? (rs.columnGap ? (parseInt(rs.columnGap) || 0) : 10) : 0;
+          const ownPadL = cs.paddingLeft ? parseInt(cs.paddingLeft) || 0 : 0;
+          const total = ownPadL + gutter;
+          return total ? `padding-left:${total}px` : "";
+        })(),
         cs.paddingRight ? `padding-right:${cs.paddingRight}` : "",
         cs.paddingTop ? `padding-top:${cs.paddingTop}` : "",
         cs.paddingBottom ? `padding-bottom:${cs.paddingBottom}` : "",
@@ -2401,7 +2659,7 @@ function generateSigHTML(sig, profile) {
         cs.borderLeftWidth ? `border-left:${cs.borderLeftWidth} solid ${cs.borderLeftColor||"#e5e7eb"}` : "",
       ].filter(Boolean).join(";");
       html += `<td style="${cStyle};">`;
-      col.elements.forEach(el => { html += renderElementHTML(el, profile); });
+      col.elements.forEach(el => { html += renderElementHTML(el, profile, false, colMaxPx); });
       html += `</td>`;
     });
     html += `</tr></table></td></tr>`;
@@ -2440,6 +2698,260 @@ function SignatureRenderer({ signature, profile }) {
 }
 
 // --- Main App ---
+// Public, no-login-required preview for a share link. This is the actual fix
+// for the "how do agents get the finished signature" problem -- the old flow
+// required the recipient to sign in AND be on the staff allowlist just to
+// view a shared design, which locked out every actual agent (they aren't
+// staff). This component bypasses all of that: it's mounted before any of
+// App's Firebase-auth-gated logic runs, fetches the shared doc directly
+// (Firestore rules now allow a public, unauthenticated read for any doc in
+// shared/ other than the admin's publishedTemplates doc), and renders just
+// the signature plus a single Copy to Clipboard button. Nothing here ever
+// touches an email body, so there's no Gmail cid: round-trip to break the
+// images -- the agent copies straight from this page into their own Gmail
+// Settings.
+function PublicSharePreview({ shortId }) {
+  const [sig, setSig] = useState(null);
+  const [sharedProfile, setSharedProfile] = useState(DEFAULT_PROFILE);
+  const [notFound, setNotFound] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [copiedHtml, setCopiedHtml] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [savedName, setSavedName] = useState("");
+
+  useEffect(() => {
+    function handler(e) { if (dropdownRef.current && !dropdownRef.current.contains(e.target)) setDropdownOpen(false); }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const snap = await getDoc(doc(db, "shared", shortId));
+        if (cancelled) return;
+        if (!snap.exists()) { setNotFound(true); return; }
+        const data = snap.data();
+        // New links save {sig, profile}. Older links (from before this was
+        // fixed) saved the sig object directly at the top level -- detect
+        // that by checking for `rows`, which only a sig object has.
+        if (data && data.rows) {
+          setSig(data);
+          setSharedProfile(DEFAULT_PROFILE);
+        } else {
+          setSig(data.sig || null);
+          setSharedProfile(data.profile || DEFAULT_PROFILE);
+        }
+      } catch (e) {
+        console.warn("Could not load shared signature:", e);
+        if (!cancelled) setNotFound(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [shortId]);
+
+  async function copy() {
+    if (!sig) return;
+    // Auto-crops any photo to match its box before copying -- same reasoning
+    // as the regular editor's copy flow (see prepareSigForExport above).
+    const exportSig = await prepareSigForExport(sig, sharedProfile);
+    const html = generateSigHTML(exportSig, sharedProfile);
+    if (tryExecCommandCopy(html, false)) {
+      setCopied(true); setCopyFailed(false); setTimeout(() => setCopied(false), 2500);
+      return;
+    }
+    try {
+      if (navigator.clipboard && window.ClipboardItem) {
+        const blob = new Blob([html], { type: "text/html" });
+        await navigator.clipboard.write([new ClipboardItem({ "text/html": blob })]);
+      } else if (navigator.clipboard) {
+        await navigator.clipboard.writeText(html);
+      } else {
+        throw new Error("No clipboard method available");
+      }
+      setCopied(true); setCopyFailed(false); setTimeout(() => setCopied(false), 2500);
+    } catch (err) {
+      setCopyFailed(true); setTimeout(() => setCopyFailed(false), 4000);
+    }
+  }
+
+  // Copies the raw HTML source as plain text, for anyone pasting into a
+  // template system or code editor rather than directly into an email
+  // client -- same purpose as "Copy HTML" in the main editor's dropdown.
+  async function copyHtmlSource() {
+    if (!sig) return;
+    const exportSig = await prepareSigForExport(sig, sharedProfile);
+    const html = generateSigHTML(exportSig, sharedProfile);
+    if (tryExecCommandCopy(html, true)) {
+      setCopiedHtml(true); setCopyFailed(false); setTimeout(() => setCopiedHtml(false), 2500);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(html);
+      setCopiedHtml(true); setCopyFailed(false); setTimeout(() => setCopiedHtml(false), 2500);
+    } catch (err) {
+      setCopyFailed(true); setTimeout(() => setCopyFailed(false), 4000);
+    }
+  }
+
+  // Signs the visitor in (if needed) with their own Google/Compass account,
+  // then saves this shared design as a signature under their own account so
+  // they can come back and edit it later. Deliberately self-contained and
+  // doesn't navigate anywhere else in the app afterward -- this page has no
+  // way to know whether whatever gates the rest of the app (there's a
+  // reference to something called AuthGate elsewhere that isn't defined in
+  // this file, so it likely lives in a separate wrapper) would actually let
+  // this visitor through, since "make a copy" is meant for any Compass
+  // person, not just staff on the internal tool's allowlist. So instead of
+  // redirecting into the editor, it just confirms success right here.
+  async function makeCopy() {
+    if (!sig) return;
+    setSaveError("");
+    setSaving(true);
+    try {
+      let user = auth.currentUser;
+      if (!user) {
+        const provider = new GoogleAuthProvider();
+        provider.setCustomParameters({ hd: "compass.com" });
+        const result = await signInWithPopup(auth, provider);
+        user = result.user;
+      }
+      const email = (user.email || "").toLowerCase();
+      if (!user.emailVerified || !/@compass\.com$/.test(email)) {
+        setSaveError("Please sign in with your @compass.com account.");
+        setSaving(false);
+        return;
+      }
+      const name = sig.name ? sig.name + " (shared)" : "Shared Signature";
+      const newId = "sig-" + Math.random().toString(36).slice(2);
+      // Freezes the shared profile's values into THIS COPY's own
+      // manualOverrides (same mechanism the Autofill-off toggle already
+      // uses), with autofillEnabled explicitly set to false. Without this,
+      // "imported" only carried the design's layout (sig) -- Smart Fields
+      // in it are profile-driven by nature, so the instant this copy got
+      // opened normally in the recipient's own account, they'd silently
+      // render from THAT account's own profile instead of staying frozen
+      // to whatever was actually shown in the preview. That's what made it
+      // look like the design "reverted" to someone else's info: it wasn't
+      // reverting, Smart Fields were just doing exactly what Smart Fields
+      // do once nothing is anchoring them to the original person's data
+      // anymore. The recipient can still flip Autofill back on later if
+      // they'd rather this design start reflecting their own profile.
+      const imported = { ...sig, id: newId, name, autofillEnabled: false, manualOverrides: { ...sharedProfile }, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      await setDoc(doc(collection(db, "users", user.uid, "signatures"), newId), imported);
+      // Redirects into the actual editor with this copy already open,
+      // instead of leaving the person on this static preview page with just
+      // a "saved!" message and no way to get to it from here. Reloading
+      // through a real navigation (not just swapping local state) also
+      // means this always starts from a clean, freshly-authenticated App()
+      // render rather than continuing to run inside whatever state this
+      // preview page happened to be in -- App() picks up the #open= hash
+      // once it finishes loading this account's signatures and opens the
+      // matching one directly.
+      // Setting .href/.hash to a URL that only differs by its fragment does
+      // NOT trigger an actual page reload in browsers -- it's treated as an
+      // in-page navigation, so the already-mounted PublicSharePreview just
+      // kept rendering exactly what it had on screen, with nothing telling
+      // React the hash had changed underneath it (React has no built-in
+      // reactivity to window.location -- only state/prop changes cause a
+      // re-render). The explicit reload() below is what forces App() to
+      // actually re-mount fresh and re-evaluate the new hash.
+      window.location.hash = "open=" + newId;
+      window.location.reload();
+    } catch (e) {
+      console.warn("Could not save shared signature:", e);
+      setSaveError(e?.code === "auth/popup-closed-by-user" ? "" : "Something went wrong saving this -- please try again.");
+    }
+    setSaving(false);
+  }
+
+  const shellStyle = { display:"flex", flexDirection:"column", alignItems:"center", minHeight:"100vh", padding:"48px 20px", background:"#E8E8E8", fontFamily:"'Compass Sans','DM Sans','Hanken Grotesk',sans-serif" };
+
+  if (notFound) {
+    return (
+      <div style={shellStyle}>
+        <div style={{ fontSize:20, fontWeight:800, color:"#111827", marginBottom:8 }}>This link isn't valid</div>
+        <div style={{ fontSize:15, color:"#6b7280", maxWidth:420, textAlign:"center" }}>
+          It may have been removed, or the link was copied incorrectly. Ask whoever sent this to you for a fresh link.
+        </div>
+      </div>
+    );
+  }
+
+  if (!sig) {
+    return (
+      <div style={shellStyle}>
+        <div style={{ color:"#6b7280", fontSize:15 }}>Loading your signature…</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={shellStyle}>
+      {/* 640 used to be tighter than the signature actually needs: subtract
+          this card's own padding (28px each side) plus the inner preview
+          box's padding+border (16px each side + 1px border) from 640 and
+          there's only ~550px left for content that's authored at a fixed
+          600px wide -- so it was clipping/scrolling internally regardless of
+          how wide the browser window itself was. 720 leaves enough room for
+          the full 600px design plus all that padding with breathing room. */}
+      <div style={{ width:"100%", maxWidth:720, background:"#fff", border:"1px solid #d1d5db", borderRadius:12, padding:28 }}>
+        <div style={{ fontSize:20, fontWeight:800, color:"#111827", marginBottom:4 }}>Your email signature is ready</div>
+        <div style={{ fontSize:15, color:"#6b7280", marginBottom:20, lineHeight:1.5 }}>
+          Click the button below, then paste it into Gmail (Settings → General → Signature) or Outlook.
+        </div>
+        <div ref={dropdownRef} style={{ position:"relative", marginBottom:20 }}>
+          <div style={{ display:"flex", borderRadius:8, overflow:"hidden" }}>
+            <button onClick={copy} style={{ flex:1, background:"#0051d5", border:"none", padding:"12px 18px", fontSize:15, fontWeight:700, color: copied ? "#a5f3fc" : "#fff", cursor:"pointer", fontFamily:"inherit" }}>
+              {copied ? "Copied! Now paste it into Gmail/Outlook" : copyFailed ? "Couldn't copy -- try selecting the preview below" : "Copy Signature to Clipboard"}
+            </button>
+            <button onClick={()=>setDropdownOpen(o=>!o)} style={{ background:"#0041b5", border:"none", borderLeft:"1px solid rgba(255,255,255,0.2)", padding:"0 16px", cursor:"pointer", display:"flex", alignItems:"center" }}>
+              <Icon name="expand_more" size={18} color="#fff" />
+            </button>
+          </div>
+          {dropdownOpen && (
+            <div style={{ position:"absolute", top:"100%", right:0, marginTop:4, background:"#fff", border:"1px solid #e5e7eb", borderRadius:8, boxShadow:"0 4px 16px rgba(0,0,0,0.12)", zIndex:50, minWidth:260, overflow:"hidden" }}>
+              <button onClick={()=>{ copy(); setDropdownOpen(false); }}
+                style={{ width:"100%", padding:"10px 14px", border:"none", background:"transparent", cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center", gap:10, fontSize:15, color:"#111827", textAlign:"left" }}
+                onMouseEnter={e=>e.currentTarget.style.background="#f3f4f6"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                <Icon name="content_paste" size={16} color="#0051d5" />
+                <div><div style={{ fontWeight:600 }}>Copy to Clipboard</div><div style={{ fontSize:15, color:"#6b7280" }}>Paste directly into Gmail or Outlook</div></div>
+              </button>
+              <button onClick={()=>{ copyHtmlSource(); setDropdownOpen(false); }}
+                style={{ width:"100%", padding:"10px 14px", border:"none", background:"transparent", cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center", gap:10, fontSize:15, color:"#111827", textAlign:"left" }}
+                onMouseEnter={e=>e.currentTarget.style.background="#f3f4f6"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                <Icon name="code" size={16} color="#374151" />
+                <div><div style={{ fontWeight:600 }}>{copiedHtml ? "Copied!" : "Copy HTML"}</div><div style={{ fontSize:15, color:"#6b7280" }}>For developers or custom email tools</div></div>
+              </button>
+              <div style={{ borderTop:"1px solid #f3f4f6" }} />
+              <button onClick={()=>{ makeCopy(); setDropdownOpen(false); }} disabled={saving || !!savedName}
+                style={{ width:"100%", padding:"10px 14px", border:"none", background:"transparent", cursor: (saving||savedName) ? "default" : "pointer", fontFamily:"inherit", display:"flex", alignItems:"center", gap:10, fontSize:15, color:"#111827", textAlign:"left", opacity: (saving||savedName) ? 0.5 : 1 }}
+                onMouseEnter={e=>{ if (!saving && !savedName) e.currentTarget.style.background="#f3f4f6"; }} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                <Icon name="person_add" size={16} color="#374151" />
+                <div><div style={{ fontWeight:600 }}>{savedName ? "Saved to your account" : saving ? "Saving…" : "Make a Copy to My Account"}</div><div style={{ fontSize:15, color:"#6b7280" }}>Signs you in with your Compass Google account if needed</div></div>
+              </button>
+            </div>
+          )}
+        </div>
+        {savedName && (
+          <div style={{ width:"100%", textAlign:"center", background:"#ecfdf5", border:"1px solid #a7f3d0", borderRadius:8, padding:"10px 14px", fontSize:14, color:"#065f46", fontWeight:600, marginBottom:20 }}>
+            Saved as "{savedName}" -- sign in at sds.janienation.com anytime to find and edit it.
+          </div>
+        )}
+        {saveError && <div style={{ color:"#b91c1c", fontSize:14, marginBottom:12, textAlign:"center" }}>{saveError}</div>}
+        <div style={{ border:"1px solid #e5e7eb", borderRadius:8, padding:16, overflow:"auto" }}>
+          <SignatureRenderer signature={sig} profile={sharedProfile} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
 
   const [screen, setScreen] = useState("home");
@@ -2685,21 +3197,20 @@ export default function App() {
   // before the Firestore fetch resolves, and the later fetch would overwrite
   // the just-imported signature with data that doesn't include it yet.
   //
-  // Two link formats are supported:
-  //   #s=<shortId>   -- current format. The full signature JSON lives in
-  //                      Firestore at shared/<shortId>; the link only carries
-  //                      the short id, which keeps URLs short.
-  //   #share=<base64> -- legacy format from before the Firestore-backed
-  //                       short links. The whole signature JSON was
-  //                       base64-encoded directly into the URL, which is why
-  //                       old links could get astronomically long. Kept here
-  //                       so links people already shared/saved still work.
+  // Only the legacy #share=<base64> format is handled here now. The current
+  // #s=<shortId> format is handled entirely by PublicSharePreview above,
+  // mounted before this component's gates even run -- that's what makes it
+  // work without requiring sign-in. This effect used to also handle #s=
+  // links (importing them as an editable copy for signed-in staff), but that
+  // duplicated/raced against PublicSharePreview: this effect would clear the
+  // hash out from under it mid-render. #share= links are a different, older
+  // format that PublicSharePreview doesn't intercept, so they still need
+  // handling here.
   useEffect(() => {
     if (accountLoading) return;
     const hash = window.location.hash;
-    const isShortLink = hash.startsWith("#s=");
     const isLegacyLink = hash.startsWith("#share=");
-    if (!isShortLink && !isLegacyLink) return;
+    if (!isLegacyLink) return;
 
     function importShared(shared) {
       if (!shared || !shared.rows) return;
@@ -2724,24 +3235,6 @@ export default function App() {
       // theirs.
       openEditor(already || imported);
       showToast("Shared design imported! It's yours to edit now.");
-    }
-
-    if (isShortLink) {
-      const shortId = hash.slice(3);
-      (async () => {
-        try {
-          const snap = await getDoc(doc(db, "shared", shortId));
-          if (!snap.exists()) {
-            window.history.replaceState(null, "", window.location.pathname);
-            showToast("That share link has expired or is invalid.");
-            return;
-          }
-          importShared(snap.data());
-        } catch(e) {
-          console.warn("Could not import shared design:", e);
-        }
-      })();
-      return;
     }
 
     // Legacy base64-in-URL format
@@ -3123,11 +3616,19 @@ export default function App() {
     setSignatures(sigs);
     (typeof localStorage !== "undefined" && localStorage.setItem("ss_sigs", JSON.stringify(sigs)));
     const uid = auth.currentUser?.uid;
+    // Returned so Copy to Clipboard / Share Link (see copyRich/copyHtml/
+    // copyShareLink) can await this specific write finishing before they
+    // read from Firestore or hand data off elsewhere -- previously this was
+    // fire-and-forget, so clicking Copy/Share within the ~1.2s debounced-
+    // autosave window (right after the last keystroke) could beat the write
+    // to Firestore, capturing/sharing whatever was ALREADY persisted rather
+    // than the edit that was just made.
+    let writePromise = Promise.resolve();
     if (uid) {
       const sigsCol = collection(db, "users", uid, "signatures");
       // Local state is updated above for a responsive UI; Firestore syncs here.
       if (changed.length) {
-        Promise.all(changed.map(sig => setDoc(doc(sigsCol, sig.id), sig)))
+        writePromise = Promise.all(changed.map(sig => setDoc(doc(sigsCol, sig.id), sig)))
           .catch(err => console.error("Failed to save signatures to Firestore:", err));
       }
       // Deletes matter more than writes -- if a delete fails, the doc reappears
@@ -3146,6 +3647,7 @@ export default function App() {
           });
       }
     }
+    return writePromise;
   }
 
   function saveProfile(p) {
@@ -3157,10 +3659,51 @@ export default function App() {
     }
   }
 
-  function updateProfileField(field, val) {
-    const updated = { ...profile, [field]: val };
-    saveProfile(updated);
+  // Smart Fields (Name, Photo, Phone, Address, etc.) used to write straight
+  // into the account's own persisted profile above whenever Autofill was on
+  // (the default) -- which meant simply typing into a signature, before
+  // ever visiting the dedicated Profile screen or filling out the first-run
+  // setup modal, silently populated the account profile with whatever was
+  // typed. That's a real account-wide side effect from what looks like a
+  // one-off edit to a single signature, and it's exactly how a staff
+  // member's own (never set up) profile would end up holding an agent's
+  // name after simply building that agent's signature. The ONLY places that
+  // should ever write to the account profile are the explicit ones the
+  // person opened on purpose: the Profile screen (ProfileForm, via
+  // saveProfile) and the first-run "Welcome to Signature Studio" setup
+  // modal. Editing a Smart Field inside a signature -- regardless of the
+  // Autofill toggle -- now always writes to that signature's own
+  // manualOverrides instead, never to the shared profile.
+  function updateSigOverrideField(field, val) {
+    if (!activeSig) return;
+    pushSig({ ...activeSig, manualOverrides: { ...(activeSig.manualOverrides||{}), [field]: val } });
   }
+  function toggleAutofill() {
+    if (!activeSig) return;
+    const currentlyOn = activeSig.autofillEnabled !== false; // undefined = on, matches old behavior
+    pushSig({ ...activeSig, autofillEnabled: !currentlyOn });
+  }
+  // Every existing call site that already calls onUpdateProfileField(...)
+  // (inline canvas edits, the photo/logo upload flows, the panel's
+  // manual-entry inputs) keeps working unchanged -- it's just that the
+  // destination is now always this signature's own override, never the
+  // account profile, whatever the Autofill toggle is set to.
+  function routeProfileFieldUpdate(field, val) {
+    updateSigOverrideField(field, val);
+  }
+  // What Smart Fields actually render from. Autofill on (the default):
+  // starts from the real account profile, so someone who HAS set up their
+  // profile still sees it fill in automatically. Autofill off: starts from a
+  // genuinely blank profile (every field empty, same as DEFAULT_PROFILE),
+  // so it's obvious at a glance that nothing here is tied to the real
+  // profile. Either way, this signature's own manualOverrides are layered on
+  // top -- any field actually edited in this signature always shows that
+  // edit, and that edit lives ONLY here, never in the shared account
+  // profile.
+  const effectiveProfile = {
+    ...(activeSig && activeSig.autofillEnabled === false ? DEFAULT_PROFILE : profile),
+    ...(activeSig ? (activeSig.manualOverrides||{}) : {})
+  };
 
   const [prevScreen, setPrevScreen] = useState("home");
   function navigate(s) {
@@ -3176,6 +3719,28 @@ export default function App() {
     setEditingTemplateId(null);
     setScreen("editor");
   }
+
+  // Catches the #open=<id> hash that "Make a Copy to My Account" (on the
+  // public share-link preview page) redirects to after saving a copy --
+  // opens that specific signature directly in the editor instead of
+  // leaving the person to go find it themselves on the dashboard. Waits
+  // for accountLoading to finish since `signatures` isn't populated yet
+  // before that, and only runs once per hash value (openedShareCopyRef)
+  // so it doesn't re-trigger on every later re-render.
+  const openedShareCopyRef = useRef(null);
+  useEffect(() => {
+    if (accountLoading) return;
+    const hash = window.location.hash;
+    if (!hash.startsWith("#open=")) return;
+    const targetId = hash.slice(6);
+    if (openedShareCopyRef.current === targetId) return;
+    const match = signatures.find(s => s.id === targetId);
+    if (!match) return; // signatures may still be one Firestore round-trip behind right after the redirect
+    openedShareCopyRef.current = targetId;
+    window.history.replaceState(null, "", window.location.pathname);
+    openEditor(match);
+    showToast("Saved to your account -- here's your copy.");
+  }, [accountLoading, signatures]);
 
   function usePreset(presetId) {
     const p = allPresets.find(x => x.id === presetId);
@@ -3204,29 +3769,64 @@ export default function App() {
     if (!sig) return null;
     try {
       const shortId = uuid();
-      await setDoc(doc(db, "shared", shortId), sig);
+      // Smart Fields (Name, Photo, Phone, Address, etc.) render from
+      // effectiveProfile, NOT the raw account `profile` -- when Autofill My
+      // Details is off (exactly the case for a design built for someone
+      // else, like an agent), the actual live values being shown come from
+      // activeSig.manualOverrides layered on top, not from the account's
+      // own profile fields at all. This used to snapshot the raw `profile`
+      // directly, which meant a design built with Autofill off would share
+      // correctly in the live canvas but capture the WRONG, unrelated
+      // source entirely once saved -- not a stale copy of the right data,
+      // literally the wrong data source from the start. That's what made
+      // fields look scrambled/reverted on the recipient's end even though
+      // the original always looked correct to whoever built it.
+      await setDoc(doc(db, "shared", shortId), { sig, profile: effectiveProfile, createdAt: new Date().toISOString() });
       return window.location.origin + window.location.pathname + "#s=" + shortId;
     } catch(e) {
       console.warn("Could not create share link:", e);
+      // Firestore has a hard 1 MiB limit per document. Signatures embed
+      // photos/badges/banners as base64 image data directly, and this write
+      // now bundles the whole signature AND the whole profile (which can
+      // itself carry a base64 photo) into one document -- a design with a
+      // few images can realistically exceed that limit. Surfacing that
+      // specific reason (rather than a generic failure) is what actually
+      // makes this self-diagnosing instead of a mystery toast.
+      const msg = (e && e.message) || "";
+      if (e?.code === "resource-exhausted" || /longer than|exceeds the maximum|1048487|invalid-argument/i.test(msg)) {
+        return { error: "This design has too many/too-large images to share as a link. Try removing a banner, badge, or GIF and generating the link again." };
+      }
       return null;
     }
   }
 
   async function copyShareLink(sig) {
-    const url = await generateShareLink(sig);
-    if (!url) { showToast("Could not generate link."); return; }
+    // Commits any pending edits before generating the link -- without this,
+    // clicking Share Link within the ~1.2s debounced-autosave window (right
+    // after the last change) could capture whatever was already persisted
+    // to Firestore rather than the edit that was just made. This is exactly
+    // what made a shared design look like it had "reverted": the design
+    // wasn't actually reverted, the share link had just captured a moment
+    // slightly before the latest styling change was saved.
+    await saveCurrent(true);
+    const result = await generateShareLink(sig);
+    const url = typeof result === "string" ? result : null;
+    if (!url) {
+      showToast((result && result.error) || "Could not generate link.");
+      return;
+    }
     navigator.clipboard?.writeText(url).then(() => {
       showToast("Share link copied! Anyone with this link can import a copy.");
     }).catch(() => showToast("Could not copy link."));
   }
 
-  function saveCurrent(silent) {
+  async function saveCurrent(silent) {
     if (!activeSig) return;
     const updated = { ...activeSig, updatedAt: new Date().toISOString() };
     setActiveSig(updated);
     const idx = signatures.findIndex(s => s.id === updated.id);
     const newSigs = idx >= 0 ? signatures.map(s => s.id === updated.id ? updated : s) : [updated, ...signatures];
-    saveSigs(newSigs);
+    await saveSigs(newSigs);
     setLastSavedAt(new Date());
     if (!silent) showToast("Signature saved!");
   }
@@ -3252,6 +3852,62 @@ export default function App() {
     setFuture([]);
     setActiveSig(updated);
   }
+
+  // Badges made before the per-badge aspect-ratio feature existed have no
+  // badgeAspect_i stored, so they were still rendering forced-square (with
+  // padding/letterboxing eating into their box) even after that fix shipped
+  // -- the fix only ever ran at upload time, and re-uploading isn't
+  // something an existing design's owner would think to do just to pick up
+  // a bug fix. This silently measures and backfills any missing aspect
+  // ratios once per opened signature, so already-built badges rows pick up
+  // their real proportions without anyone having to redo anything. Runs via
+  // setActiveSig directly (not pushSig) since it's a background correction,
+  // not a user edit -- it shouldn't show up as a step in undo history.
+  const backfilledSigId = useRef(null);
+  useEffect(() => {
+    if (!activeSig || !activeSig.id) return;
+    if (backfilledSigId.current === activeSig.id) return;
+    backfilledSigId.current = activeSig.id;
+    const sigIdAtStart = activeSig.id;
+    (async () => {
+      let changed = false;
+      const rows = await Promise.all(activeSig.rows.map(async row => {
+        const columns = await Promise.all(row.columns.map(async col => {
+          const elements = await Promise.all(col.elements.map(async el => {
+            if (el.type !== "badges") return el;
+            const s = el.style || {};
+            const count = parseInt(s.badgeCount) || 4;
+            const styleUpdates = {};
+            for (let i = 0; i < count; i++) {
+              const src = s[`badge_${i}`];
+              if (!src) continue;
+              if (!s[`badgeAspect_${i}`]) {
+                styleUpdates[`badgeAspect_${i}`] = String(await getImageAspect(src));
+                changed = true;
+              }
+              // Separate from badgeAspect_i on purpose -- this one is never
+              // meant to change again once set, so the crop tool always has
+              // the TRUE original shape to build its frame from, regardless
+              // of whatever badgeAspect_i has drifted to after a crop.
+              if (!s[`badgeOriginalAspect_${i}`]) {
+                const origSrc = s[`badgeOriginal_${i}`] || src;
+                styleUpdates[`badgeOriginalAspect_${i}`] = String(await getImageAspect(origSrc));
+                changed = true;
+              }
+            }
+            return Object.keys(styleUpdates).length ? { ...el, style: { ...s, ...styleUpdates } } : el;
+          }));
+          return { ...col, elements };
+        }));
+        return { ...row, columns };
+      }));
+      // Bail if the person navigated to a different signature while the
+      // aspect-ratio reads (async image loads) were still in flight -- an
+      // update matching this stale sig id could otherwise clobber whatever
+      // they're actually looking at now.
+      if (changed) setActiveSig(prev => (prev && prev.id === sigIdAtStart) ? { ...prev, rows } : prev);
+    })();
+  }, [activeSig?.id]);
 
   function undo() {
     if (history.length === 0) return;
@@ -3454,7 +4110,11 @@ export default function App() {
       id: "row-"+uuid(), style: {},
       columns: Array.from({length:cols}).map((_,i) => ({
         id: "col-"+uuid(), elements: [],
-        style: { verticalAlign:"top", ...(i < cols-1 && cols > 1 ? {borderRightWidth:"1px",borderRightColor:"#e5e7eb"} : {}) }
+        style: { verticalAlign:"top",
+          // Every new column starts at the same width; the last one takes
+          // the rounding remainder so they always total exactly 100%.
+          width: equalColPct(cols),
+          ...(i < cols-1 && cols > 1 ? {borderRightWidth:"1px",borderRightColor:"#e5e7eb"} : {}) }
       }))
     };
     // insertIndex lets a drag-drop caller drop the row at an exact position
@@ -3696,8 +4356,7 @@ export default function App() {
     if (!row || row.columns.length <= 1) return;
     const newCols = row.columns.filter(c => c.id !== colId);
     // Redistribute widths equally
-    const w = Math.floor(100/newCols.length);
-    newCols.forEach((c,i) => c.style = { ...c.style, width: (i===newCols.length-1 ? (100-(w*(newCols.length-1))) : w)+"%" });
+    newCols.forEach(c => c.style = { ...c.style, width: equalColPct(newCols.length) });
     pushSig({ ...activeSig, rows: activeSig.rows.map(r => r.id !== rowId ? r : { ...r, columns: newCols }) });
     setSelectedElId(null);
     showToast("Column removed");
@@ -3709,8 +4368,7 @@ export default function App() {
     if (!row || row.columns.length >= 6) return;
     const newCol = { id:"col-"+uuid(), elements:[], style:{ verticalAlign:"top" } };
     const newCols = [...row.columns, newCol];
-    const w = Math.floor(100/newCols.length);
-    newCols.forEach((c,i) => c.style = { ...c.style, width: (i===newCols.length-1 ? (100-(w*(newCols.length-1))) : w)+"%" });
+    newCols.forEach(c => c.style = { ...c.style, width: equalColPct(newCols.length) });
     pushSig({ ...activeSig, rows: activeSig.rows.map(r => r.id !== rowId ? r : { ...r, columns: newCols }) });
     showToast("Column added");
   }
@@ -3729,6 +4387,18 @@ export default function App() {
     cloned.name = sig.name + " (copy)";
     cloned.createdAt = new Date().toISOString();
     cloned.updatedAt = new Date().toISOString();
+    // Freeze the duplicate into a fully independent copy that can never
+    // again depend on the account profile, no matter what Autofill was set
+    // to on the original -- snapshot exactly what was effectively showing
+    // (account profile, when Autofill was on, with this signature's own
+    // overrides layered on top -- same formula as effectiveProfile above)
+    // into the copy's own manualOverrides, then switch Autofill off. Same
+    // decoupling the "Make a Copy" flow on a public share link already does.
+    cloned.manualOverrides = {
+      ...(sig.autofillEnabled === false ? DEFAULT_PROFILE : profile),
+      ...(sig.manualOverrides||{})
+    };
+    cloned.autofillEnabled = false;
     saveSigs([cloned, ...signatures]);
     showToast("Signature duplicated");
   }
@@ -3743,6 +4413,17 @@ export default function App() {
     { id:"editor", icon:"hardware", label:"Build" },
     { id:"media", icon:"perm_media", label:"Media" },
   ];
+
+  // Public share-link preview -- checked before the accountLoading/allowlist
+  // gates below on purpose. An agent opening a share link isn't staff and
+  // isn't signed in, so making them wait through Firebase auth resolution or
+  // hit the "Not authorized" screen would defeat the entire point of this
+  // route. window.location.hash doesn't change out from under a mounted
+  // page in normal use, so checking it here (after all hooks above have
+  // already run, same as the other early-return gates just below) is safe.
+  if (typeof window !== "undefined" && window.location.hash.startsWith("#s=")) {
+    return <PublicSharePreview shortId={window.location.hash.slice(3)} />;
+  }
 
   if (accountLoading) {
     return (
@@ -3905,7 +4586,9 @@ export default function App() {
         />}
         {screen === "editor" && activeSig && (
           <Editor
-            sig={activeSig} profile={profile}
+            sig={activeSig} profile={effectiveProfile}
+            autofillEnabled={!activeSig || activeSig.autofillEnabled !== false}
+            onToggleAutofill={toggleAutofill}
             editorTab={editorTab} setEditorTab={setEditorTab}
             selectedRowId={selectedRowId} setSelectedRowId={id => { setSelectedRowId(id); setSelectedElId(null); }}
             selectedElId={selectedElId} setSelectedElId={setSelectedElId}
@@ -3925,14 +4608,14 @@ export default function App() {
             canUndo={history.length>0} canRedo={future.length>0}
             onUpdateElStyle={updateElStyle} onUpdateElContent={updateElContent} onUpdateRowStyle={updateRowStyle}
             onUpdateName={name => setActiveSig({...activeSig, name})}
-            onSave={() => saveCurrent(false)} onNavigate={navigate} prevScreen={prevScreen} lastSavedAt={lastSavedAt} onShareLink={() => copyShareLink(activeSig)}
-            mediaLibrary={mediaLibrary} onAddMedia={addToMediaLibrary} onUpdateProfileField={updateProfileField}
+            onSave={() => saveCurrent(false)} onSaveSilent={() => saveCurrent(true)} onNavigate={navigate} prevScreen={prevScreen} lastSavedAt={lastSavedAt} onShareLink={() => copyShareLink(activeSig)}
+            mediaLibrary={mediaLibrary} onAddMedia={addToMediaLibrary} onUpdateProfileField={routeProfileFieldUpdate}
             adminMode={adminMode} isEditingTemplate={!!editingTemplateId} onOpenTemplateSaveModal={openTemplateSaveModal}
           />
         )}
         {screen === "profile" && <ProfileForm profile={profile} onSave={p => { saveProfile(p); showToast("Profile saved!"); }} onNavigate={navigate} onAddMedia={addToMediaLibrary} />}
         {screen === "media" && <MediaLibraryPage mediaLibrary={mediaLibrary} signatures={signatures} onDelete={deleteFromMediaLibrary} onAddMedia={addToMediaLibrary} onNavigate={navigate} />}
-        {screen === "export" && activeSig && <ExportScreen sig={activeSig} profile={profile} onNavigate={navigate} onSave={saveCurrent} />}
+        {screen === "export" && activeSig && <ExportScreen sig={activeSig} profile={effectiveProfile} onNavigate={navigate} onSave={saveCurrent} />}
       </main>
 
       {/* Toast */}
@@ -4656,7 +5339,14 @@ function ColSelectBadge({ colIdx, isSelected, visible, onClick }) {
     <div
       onClick={onClick}
       style={{
-        position:"absolute", top:2, left:"50%", transform:"translateX(-50%)",
+        // Was top:2 (just inside the column's own top edge), which sat
+        // directly over whatever content was there -- fine for a wide
+        // column with room to spare, but it fully covered short/skinny
+        // content in a narrow column (e.g. a small icon in a slim far-right
+        // column). top:-18 moves it to genuinely float above the column,
+        // outside its content area entirely, the same way the row badge
+        // already sits outside to the side rather than on top of anything.
+        position:"absolute", top:-18, left:"50%", transform:"translateX(-50%)",
         background: isSelected ? "#0051d5" : "#3b82f6",
         color: "#fff",
         borderRadius:4, padding:"2px 7px", fontSize:8, fontWeight:700,
@@ -4839,7 +5529,7 @@ function BannerUploadForm({ uploading, progress, error, onCancel, onUpload }) {
   );
 }
 
-function ColumnWidthBar({ row, startColDrag, selectedColId }) {
+function ColumnWidthBar({ row, startColDrag, selectedColId, onEqualize }) {
   if (row.columns.length <= 1) return null;
   const colors = ["#0051d5","#3b82f6","#93c5fd","#bfdbfe"];
   let left = 0;
@@ -4848,12 +5538,12 @@ function ColumnWidthBar({ row, startColDrag, selectedColId }) {
       <div style={{ fontSize:15, fontWeight:700, color:"#374151", marginBottom:8 }}>Column Widths</div>
       <div style={{ position:"relative", height:36, borderRadius:6, overflow:"visible", marginBottom:8, userSelect:"none", background:"#f3f4f6" }}>
         {row.columns.map((col, ci) => {
-          const w = parseFloat(col.style?.width || `${Math.floor(100/row.columns.length)}`);
+          const w = parseFloat(col.style?.width || `${100/row.columns.length}`);
           const l = left; left += w;
           const isSelected = col.id === selectedColId;
           return (
             <div key={col.id} style={{ position:"absolute", top:0, bottom:0, left:l+"%", width:w+"%", background:colors[ci%colors.length], display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:700, color:"#fff", borderRadius: ci===0?"6px 0 0 6px": ci===row.columns.length-1?"0 6px 6px 0":"0", overflow:"hidden", outline: isSelected?"2px solid #111827":"none", outlineOffset:-2, zIndex: isSelected?1:0 }}>
-              {Math.round(w)}%
+              {+w.toFixed(1)}%
               {ci < row.columns.length-1 && (
                 <div onMouseDown={e=>{e.stopPropagation();startColDrag(e,ci,row);}}
                   style={{ position:"absolute", right:-5, top:-4, bottom:-4, width:10, cursor:"col-resize", display:"flex", alignItems:"center", justifyContent:"center", zIndex:20 }}>
@@ -4869,6 +5559,12 @@ function ColumnWidthBar({ row, startColDrag, selectedColId }) {
           <div key={col.id} style={{ flex:1, textAlign:"center", fontWeight: col.id===selectedColId?700:400, color: col.id===selectedColId?"#111827":"#6b7280" }}>Col {ci+1}</div>
         ))}
       </div>
+      {onEqualize && (
+        <button onClick={onEqualize}
+          style={{ marginTop:8, width:"100%", padding:"6px 0", fontSize:14, fontWeight:600, borderRadius:6, cursor:"pointer", border:"1px solid #e5e7eb", background:"#f9fafb", color:"#374151", fontFamily:"inherit" }}>
+          Make columns equal
+        </button>
+      )}
     </div>
   );
 }
@@ -4886,10 +5582,14 @@ function ColPropertiesPanel({ col, rowId, colGap, propLabel, inputStyle, onUpdat
         <input style={inputStyle} value={s.width||"auto"} onChange={e=>onUpdateColStyle("width",e.target.value)} />
       </div>
 
-      {/* Column Gap (global for row) */}
+      {/* Column Gap (global for row) -- DimensionInput (not a plain text
+          input) so a bare number like "40" gets normalized to "40px". A
+          padding value with no unit is invalid CSS and browsers silently
+          drop it, which is exactly why this looked like the whole control
+          just didn't do anything no matter what number was typed in. */}
       <div style={{ marginBottom:10 }}>
         <span style={propLabel}>Gap Between Columns</span>
-        <input style={inputStyle} value={colGap} onChange={e=>onUpdateRowStyle("columnGap",e.target.value)} />
+        <DimensionInput style={inputStyle} value={colGap} onChange={v=>onUpdateRowStyle("columnGap",v)} />
       </div>
 
       {/* Background Color */}
@@ -5046,7 +5746,7 @@ function TemplateSaveModal({ mode, initial, onCancel, onSubmit }) {
   );
 }
 
-function CropModal({ imageSrc, aspectW, aspectH, shapeRadius, initialZoom, initialOffsetX, initialOffsetY, onCancel, onSave }) {
+function CropModal({ imageSrc, aspectW, aspectH, shapeRadius, initialZoom, initialOffsetX, initialOffsetY, fitMode, onCancel, onSave }) {
   const [zoom, setZoom] = useState(initialZoom || 1);
   const [offset, setOffset] = useState({ x: initialOffsetX||0, y: initialOffsetY||0 });
   const [imgLoaded, setImgLoaded] = useState(false);
@@ -5072,9 +5772,20 @@ function CropModal({ imageSrc, aspectW, aspectH, shapeRadius, initialZoom, initi
   function baseScale() {
     const img = imgRef.current;
     if (!img || !img.naturalWidth) return 1;
-    // "Cover" fit: scale so the image fills the viewport in both dimensions,
-    // matching how the element actually displays today (object-fit:cover).
-    return Math.max(VIEWPORT_W / img.naturalWidth, VIEWPORT_H / img.naturalHeight);
+    // "Cover" fit (the default) scales so the image fills the viewport in
+    // both dimensions, matching object-fit:cover -- right for Photo/Logo/
+    // Image, which display that way. Badges display with object-fit:contain
+    // instead (the whole image visible, not crop-filled), and often have a
+    // very different aspect ratio than the 1:1 crop frame (a wide rectangular
+    // logo, for instance) -- "cover" mode was scaling those up massively to
+    // fill the frame's shorter dimension, opening the crop already zoomed
+    // into a tiny sliver instead of showing the whole badge. "contain" mode
+    // scales the image to just fit entirely inside the frame at zoom 1, so
+    // the full image is visible by default and zooming in is an explicit
+    // choice from there, not a forced starting point.
+    return fitMode === "contain"
+      ? Math.min(VIEWPORT_W / img.naturalWidth, VIEWPORT_H / img.naturalHeight)
+      : Math.max(VIEWPORT_W / img.naturalWidth, VIEWPORT_H / img.naturalHeight);
   }
 
   function drawRect() {
@@ -5164,9 +5875,14 @@ function BorderSection({ label, s, propLabel, inputStyle, onUpdate, defaultOpen 
             <select style={{ ...inputStyle, fontSize:15 }} value={s.borderStyle||"solid"} onChange={e=>onUpdate("borderStyle",e.target.value)}>
               <option value="solid">Solid</option><option value="dashed">Dashed</option><option value="dotted">Dotted</option>
             </select>
-            <input style={{ ...inputStyle, fontSize:15 }} placeholder="Width (e.g. 1px)" value={s.borderWidth||""} onChange={e=>onUpdate("borderWidth",e.target.value)}/>
+            {/* DimensionInput (not a plain text field) so a bare number like "1"
+                gets normalized to "1px" automatically -- border-width with no
+                unit is invalid CSS, and browsers silently drop the entire
+                border declaration when it is, which is why this looked like
+                the whole control just didn't work. */}
+            <DimensionInput style={{ ...inputStyle, fontSize:15 }} placeholder="0px" value={s.borderWidth||""} onChange={v=>onUpdate("borderWidth",v)}/>
           </div>
-          <input style={{ ...inputStyle, fontSize:15 }} placeholder="Corner Radius (e.g. 6px)" value={s.borderRadius||""} onChange={e=>onUpdate("borderRadius",e.target.value)}/>
+          <DimensionInput style={{ ...inputStyle, fontSize:15 }} placeholder="Corner Radius (e.g. 6px)" value={s.borderRadius||""} onChange={v=>onUpdate("borderRadius",v)}/>
         </div>
       )}
     </div>
@@ -5228,6 +5944,24 @@ function AdvancedSocialPanel({ el, profile, inputStyle, onUpdateElStyle, onUpdat
                 onChange={e=>onUpdateElStyle("iconSize",e.target.value)}
                 style={{ flex:1 }} />
               <span style={{ fontSize:14, color:"#374151", minWidth:30 }}>{s.iconSize||16}px</span>
+            </div>
+          </div>
+
+          {/* Layout -- horizontal (icons side by side, the original/default)
+              or vertical (stacked top to bottom). Icon Spacing below governs
+              the gap either way: between icons left-to-right in horizontal,
+              or top-to-bottom in vertical. */}
+          <div>
+            <span style={{ fontSize:14, fontWeight:700, color:"#6b7280", display:"block", marginBottom:5, textTransform:"uppercase", letterSpacing:0.6 }}>Layout</span>
+            <div style={{ display:"flex", gap:8 }}>
+              <button onClick={()=>onUpdateElStyle("socialLayout","horizontal")}
+                style={{ flex:1, padding:"7px 10px", borderRadius:6, border: (s.socialLayout||"horizontal")==="horizontal" ? "1.5px solid #0051d5" : "1.5px solid #e5e7eb", background: (s.socialLayout||"horizontal")==="horizontal" ? "#eff6ff" : "#fff", color: (s.socialLayout||"horizontal")==="horizontal" ? "#0051d5" : "#374151", fontSize:14, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
+                Horizontal
+              </button>
+              <button onClick={()=>onUpdateElStyle("socialLayout","vertical")}
+                style={{ flex:1, padding:"7px 10px", borderRadius:6, border: s.socialLayout==="vertical" ? "1.5px solid #0051d5" : "1.5px solid #e5e7eb", background: s.socialLayout==="vertical" ? "#eff6ff" : "#fff", color: s.socialLayout==="vertical" ? "#0051d5" : "#374151", fontSize:14, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
+                Vertical
+              </button>
             </div>
           </div>
 
@@ -5368,6 +6102,52 @@ function tryExecCommandCopy(html, asPlainText) {
 // the source non-uniformly to fill the box instead of cropping it. Once the
 // source pixels already match the box's ratio, there's nothing left for a
 // client to get wrong even with zero CSS support for cropping.
+// Reads an image's natural width:height ratio -- used so a badge's box can
+// shrink/grow to match whatever shape was actually uploaded (a square
+// certification seal vs. a wide horizontal networking-group logo) instead
+// of forcing every badge into the same square box regardless of its real
+// proportions. Resolves to 1 (square) on any load failure so a badge never
+// ends up with a broken/zero-size box.
+function getImageAspect(src) {
+  return new Promise((resolve) => {
+    if (!src) { resolve(1); return; }
+    // SVGs need special handling: many real-world logo SVGs (Compass's own
+    // included) declare a viewBox but no explicit width/height on the root
+    // <svg>. Per spec that's still a valid, sizeable image, but not every
+    // browser derives natural size from the viewBox correctly -- some fall
+    // back to a generic 300x150 default box instead, which silently reports
+    // a totally wrong aspect ratio (a wide ~7:1 logo measuring as ~2:1).
+    // Parsing the SVG's own viewBox/width/height attributes directly
+    // sidesteps that unreliability entirely rather than trusting whatever
+    // the browser decided naturalWidth/naturalHeight should be.
+    if (/^data:image\/svg\+xml/i.test(src)) {
+      try {
+        const isBase64 = /;base64,/.test(src);
+        const raw = src.split(",")[1] || "";
+        const svgText = isBase64 ? atob(raw) : decodeURIComponent(raw);
+        const doc = new DOMParser().parseFromString(svgText, "image/svg+xml");
+        const svgEl = doc.documentElement;
+        let w, h;
+        const vb = svgEl.getAttribute("viewBox");
+        if (vb) {
+          const parts = vb.trim().split(/[\s,]+/).map(Number);
+          if (parts.length === 4 && parts[2] > 0 && parts[3] > 0) { w = parts[2]; h = parts[3]; }
+        }
+        if (!w || !h) {
+          const wAttr = parseFloat(svgEl.getAttribute("width"));
+          const hAttr = parseFloat(svgEl.getAttribute("height"));
+          if (wAttr > 0 && hAttr > 0) { w = wAttr; h = hAttr; }
+        }
+        if (w && h) { resolve(w / h); return; }
+      } catch (e) { /* fall through to the Image()-based approach below */ }
+    }
+    const img = new Image();
+    img.onload = () => resolve((img.naturalWidth && img.naturalHeight) ? img.naturalWidth / img.naturalHeight : 1);
+    img.onerror = () => resolve(1);
+    img.src = src;
+  });
+}
+
 function cropImageToRatio(src, targetW, targetH) {
   return new Promise((resolve) => {
     if (!src || !targetW || !targetH) { resolve(src); return; }
@@ -5422,19 +6202,54 @@ function cropImageToRatio(src, targetW, targetH) {
 // Crop Photo tool for signatures to paste into Gmail correctly. The real
 // saved signature is untouched; a fresh profile photo is picked up and
 // re-cropped on the next export rather than getting stuck on an old crop.
+//
+// This always re-crops from whatever the CURRENT source is (a prior manual
+// crop, if one exists, otherwise the raw shared headshot) -- it does not
+// skip elements that already have a croppedSrc. A manual crop made back when
+// the photo box was a different size keeps its old pixel ratio forever
+// otherwise; the box can get resized later (we've seen this happen: 100x128
+// then later 107x137) without the crop ever being redone, so the source
+// pixels quietly drift out of sync with the box. Since Gmail doesn't
+// reliably keep object-fit, that mismatch reads as a stretched/squished
+// photo with no CSS left to correct it. Re-cropping from the existing
+// (already-framed) image each time is cheap when the ratio already matches
+// -- it's a near no-op center-crop -- and self-heals it when it doesn't.
 async function prepareSigForExport(sig, profile) {
   if (!sig || !sig.rows) return sig;
   const rows = await Promise.all(sig.rows.map(async row => {
     const columns = await Promise.all(row.columns.map(async col => {
       const elements = await Promise.all(col.elements.map(async el => {
+        if (el.type === "image" && el.content) {
+          // Generic images with an explicit pixel box get pre-cropped to that
+          // box's ratio too, so Gmail (which drops object-fit) still shows the
+          // intended framing, same as headshots.
+          const si = el.style || {};
+          const wI = /px$/i.test(String(si.width||"")) ? parseInt(si.width) : 0;
+          let hI = /px$/i.test(String(si.height||"")) ? parseInt(si.height) : 0;
+          if (si.imageShape === "circle" && si.sizeLocked !== "false" && wI) hI = wI;
+          if (!wI || !hI) return el;
+          // Never flatten animated GIFs or SVGs, and only pre-crop when the
+          // image is meant to fill its box (cover) -- contain/fill must keep
+          // their full frame.
+          const srcI = String(el.content);
+          if (/^data:image\/(gif|svg)/i.test(srcI) || /\.(gif|svg)(\?|$)/i.test(srcI)) return el;
+          if ((si.objectFit || "cover") !== "cover") return el;
+          const croppedI = await cropImageToRatio(el.content, wI, hI);
+          if (!croppedI || croppedI === el.content) return el;
+          return { ...el, content: croppedI };
+        }
         if (el.type !== "dynamic" || el.subtype !== "photo") return el;
         const s = el.style || {};
-        if (s.croppedSrc) return el; // Already pixel-cropped via the manual tool.
-        const rawSrc = profile.photoUrl;
+        const rawSrc = s.croppedSrc || profile.photoUrl;
         if (!rawSrc) return el;
         const isCircle = s.imageShape === "circle";
+        // Same fix as the main renderer: only force h=w for a circle while
+        // dimensions are locked. Unlocked means an oval is intentional, and
+        // this crop needs to target that same oval ratio, not silently
+        // square it back off.
+        const isLocked = s.sizeLocked !== "false";
         const w = parseInt(s.width) || 90;
-        const h = isCircle ? w : (parseInt(s.height) || 90);
+        const h = (isCircle && isLocked) ? w : (parseInt(s.height) || 90);
         const cropped = await cropImageToRatio(rawSrc, w, h);
         if (!cropped || cropped === rawSrc) return el;
         return { ...el, style: { ...s, croppedSrc: cropped } };
@@ -5751,7 +6566,18 @@ function LinkedDimensionPair({ propLabel, inputStyle, widthValue, heightValue, w
   }, [imageSrc]);
 
   function unitOf(v, fallback) {
-    const m = String(v || fallback || "").match(/[a-z%]+$/i);
+    const str = String(v || fallback || "");
+    // Whitelist of REAL CSS units, not a blacklist of specific bad words.
+    // The previous version matched ANY trailing letters as if they were a
+    // valid unit, and only specifically excluded the exact word "auto" --
+    // so an already-corrupted value like "103auto" (a number glued to the
+    // word from before that fix) still matched "auto" as its "unit" and
+    // kept perpetuating the same corruption on every subsequent resize.
+    // Recognizing only px/%/em/rem as legitimate means anything else --
+    // "auto", "103auto", or any other garbage -- correctly falls back to
+    // px instead, which also self-heals any value already corrupted this
+    // way instead of needing a separate one-time data fix.
+    const m = str.match(/(px|%|em|rem)$/i);
     return m ? m[0] : "px";
   }
   function ratio() {
@@ -5812,7 +6638,7 @@ function LinkedDimensionPair({ propLabel, inputStyle, widthValue, heightValue, w
   );
 }
 
-function InlineEditableText({ el, profile, onChangeContent, onChangeProfileField, onFocusEl, onBlurEl }) {
+function InlineEditableText({ el, profile, autofillEnabled, onChangeContent, onChangeProfileField, onFocusEl, onBlurEl }) {
   const s = el.style || {};
   const ref = useRef(null);
   const isDynamic = el.type === "dynamic";
@@ -5827,6 +6653,60 @@ function InlineEditableText({ el, profile, onChangeContent, onChangeProfileField
   // double-click still lets you type, with no conflict between the two.
   const [editing, setEditing] = useState(false);
 
+  // Selection-based inline link popup -- available for plain Text elements,
+  // AND for Smart Fields once Autofill is off. That second part is the
+  // whole point of the isPlainText flag below being more than just "not
+  // dynamic": with autofill off, a Smart Field's value is no longer pulled
+  // live from the shared account profile at all -- it's already routed (via
+  // routeProfileFieldUpdate, upstream in App) to a per-signature override,
+  // completely decoupled from anything shared. Once that's true there's no
+  // remaining reason it can't behave exactly like a real Text element: same
+  // storage (el.content instead of profile[field]), same edit path, and for
+  // free, the same inline-link-on-a-selection support this block enables.
+  // Whether a field is "acting as text" is therefore just: is it a plain
+  // Text element, OR is it Dynamic with autofill off (autofillEnabled prop
+  // reflects the signature-level toggle, not any per-field state).
+  const isPlainText = !isDynamic || autofillEnabled === false;
+  const [linkPopup, setLinkPopup] = useState(null); // {x,y,range,mode:'button'|'form',text}
+  const [linkType, setLinkType] = useState("website");
+  const [linkValue, setLinkValue] = useState("");
+  const popupRef = useRef(null);
+
+  function handleSelect() {
+    if (!isPlainText || !editing || !ref.current) return;
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) { setLinkPopup(null); return; }
+    const range = sel.getRangeAt(0);
+    // Only react to selections actually inside this element -- clicking
+    // around while some other field's text happens to still be selected
+    // shouldn't pop this up.
+    if (!ref.current.contains(range.commonAncestorContainer)) { setLinkPopup(null); return; }
+    const rect = range.getBoundingClientRect();
+    if (!rect || (rect.width === 0 && rect.height === 0)) { setLinkPopup(null); return; }
+    setLinkPopup({ x: rect.left + rect.width/2, y: rect.top, range: range.cloneRange(), mode: "button", text: range.toString() });
+  }
+
+  function openLinkForm() {
+    setLinkType("website");
+    setLinkValue("");
+    setLinkPopup(p => p ? { ...p, mode: "form" } : p);
+  }
+
+  function applyInlineLink() {
+    if (!linkPopup || !ref.current) return;
+    const href = buildLinkHref(linkType, linkValue);
+    if (!href) { setLinkPopup(null); return; }
+    // Re-apply the saved selection -- focus/selection can have moved to the
+    // popup's own inputs since the text was originally highlighted.
+    ref.current.focus();
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(linkPopup.range);
+    document.execCommand("insertHTML", false, `<a href="${href.replace(/"/g,"&quot;")}" style="color:inherit;text-decoration:underline;">${escapeHtml(linkPopup.text)}</a>`);
+    onChangeContent(sanitizeInlineLinkHtml(ref.current.innerHTML));
+    setLinkPopup(null);
+  }
+
   function autoPhoneText() {
     const mobile = (profile.mobile||"").trim();
     const office = (profile.phone||"").trim();
@@ -5836,20 +6716,44 @@ function InlineEditableText({ el, profile, onChangeContent, onChangeProfileField
     return "Mobile: (555) 000-0000 | Office: (555) 000-0000";
   }
 
-  // What text should currently display
+  // What text should currently display. isPhones is checked FIRST,
+  // ahead of the generic isPlainText/isDynamic branch below -- the
+  // combined Mobile+Office field is a special case that doesn't map to a
+  // single profile key the way Name/Title/Company/Address do (there's no
+  // DYNAMIC_PROFILE_FIELD entry for "phones" at all, since it's built by
+  // COMBINING profile.mobile and profile.phone together). Autofill-off
+  // also makes isPlainText true for phones (same as every other Smart
+  // Field), so without checking isPhones first, this fell into the
+  // generic branch below, found no matching profile key or placeholder
+  // for "phones", and silently rendered as an empty line -- an entire
+  // element quietly disappearing from a "Make a Copy"'d design rather
+  // than showing wrong text, which is what actually happened here.
   const displayValue = isPhones
     ? (el.content || autoPhoneText())
-    : isDynamic
-      ? (profile[profileField] || DYNAMIC_PLACEHOLDER[el.subtype] || "")
-      : interpolate(el.content || "", profile);
+    : (isPlainText && isDynamic)
+      ? (el.content || profile[profileField] || DYNAMIC_PLACEHOLDER[el.subtype] || "")
+      : isPlainText
+        ? interpolate(el.content || "", profile)
+        : (profile[profileField] || DYNAMIC_PLACEHOLDER[el.subtype] || "");
 
   // Only sync DOM when NOT focused — prevents overwriting while typing
   useEffect(() => {
-    // Compare textContent (raw DOM text), NOT innerText -- innerText reflects CSS
-    // text-transform, so on uppercase-styled elements it never matches displayValue
-    // and rewrote the DOM on every render (cursor jumps / content-copy glitch).
-    if (!isFocused.current && ref.current && ref.current.textContent !== displayValue) {
-      ref.current.innerText = displayValue;
+    if (isFocused.current || !ref.current) return;
+    if (isPlainText) {
+      // Text elements may contain an embedded <a> now (from the inline link
+      // popup), so this has to compare/set innerHTML rather than
+      // innerText/textContent -- textContent would silently discard the
+      // <a> tag and just show its bare text.
+      if (ref.current.innerHTML !== displayValue) {
+        ref.current.innerHTML = displayValue;
+      }
+    } else {
+      // Compare textContent (raw DOM text), NOT innerText -- innerText reflects CSS
+      // text-transform, so on uppercase-styled elements it never matches displayValue
+      // and rewrote the DOM on every render (cursor jumps / content-copy glitch).
+      if (ref.current.textContent !== displayValue) {
+        ref.current.innerText = displayValue;
+      }
     }
     // eslint-disable-next-line
   }, [displayValue]);
@@ -5928,9 +6832,29 @@ function InlineEditableText({ el, profile, onChangeContent, onChangeProfileField
   function handleFocus() { isFocused.current = true; onFocusEl && onFocusEl(); }
 
   function handleBlur(e) {
+    // Clicking into the link popup's own URL input moves focus there, which
+    // fires this blur on the contentEditable -- but that's not really "done
+    // editing," it's mid-flow for applying a link. relatedTarget is the
+    // element actually receiving focus; if that's inside the popup, skip
+    // the close/save logic entirely and let the popup interaction continue
+    // uninterrupted (applyInlineLink re-focuses this field itself once the
+    // link is actually applied).
+    if (e.relatedTarget && popupRef.current && popupRef.current.contains(e.relatedTarget)) {
+      return;
+    }
     isFocused.current = false;
     setEditing(false);
+    setLinkPopup(null);
     onBlurEl && onBlurEl(e);
+    if (isPlainText) {
+      // innerHTML, not textContent -- textContent would silently drop any
+      // embedded <a> tag from the inline link popup and save only its bare
+      // text, discarding the link the moment the field lost focus.
+      const val = sanitizeInlineLinkHtml(e.currentTarget.innerHTML);
+      if (val === displayValue) return;
+      onChangeContent(val);
+      return;
+    }
     // textContent, NOT innerText: innerText returns the text AS RENDERED, so CSS
     // text-transform:uppercase would silently rewrite the profile name in ALL CAPS.
     const val = e.currentTarget.textContent;
@@ -5941,8 +6865,6 @@ function InlineEditableText({ el, profile, onChangeContent, onChangeProfileField
       onChangeContent(val);
     } else if (isDynamic) {
       onChangeProfileField(profileField, val);
-    } else {
-      onChangeContent(val);
     }
   }
 
@@ -5956,6 +6878,8 @@ function InlineEditableText({ el, profile, onChangeContent, onChangeProfileField
         onBlur={handleBlur}
         onDoubleClick={e => { e.stopPropagation(); setEditing(true); }}
         onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); e.currentTarget.blur(); } }}
+        onMouseUp={handleSelect}
+        onKeyUp={e => { if (e.shiftKey || e.key.startsWith("Arrow")) handleSelect(); }}
         style={style}
         // NOTE: content is intentionally NOT set here via dangerouslySetInnerHTML.
         // Pairing contentEditable with dangerouslySetInnerHTML makes React re-apply
@@ -5964,14 +6888,66 @@ function InlineEditableText({ el, profile, onChangeContent, onChangeProfileField
         // to their placeholder. The useEffect above is the ONLY thing that writes
         // to this node, and only when it's not focused -- i.e. never while typing.
       />
+      {/* Selection-based link popup for plain Text elements: highlight some
+          text, a small "Link" button appears right above it; click it to
+          get the type+URL form, right there, instead of the whole-field
+          Link control in the side panel. Fixed positioning (viewport
+          coordinates from getBoundingClientRect) since this needs to float
+          above the selection regardless of where it sits in the canvas,
+          including inside a scrolled/zoomed preview panel. */}
+      {linkPopup && (
+        <div ref={popupRef}
+          style={{ position:"fixed", left:linkPopup.x, top:linkPopup.y, transform:"translate(-50%, -100%)", zIndex:1000, marginTop:-8 }}>
+          {linkPopup.mode === "button" ? (
+            <button onClick={openLinkForm} onMouseDown={e => e.preventDefault()}
+              style={{ display:"flex", alignItems:"center", gap:5, background:"#111827", color:"#fff", border:"none", borderRadius:6, padding:"6px 10px", fontSize:13, fontWeight:600, cursor:"pointer", fontFamily:"inherit", boxShadow:"0 4px 12px rgba(0,0,0,0.25)", whiteSpace:"nowrap" }}>
+              <Icon name="link" size={14} color="#fff" /> Link
+            </button>
+          ) : (
+            <div style={{ background:"#fff", border:"1px solid #e5e7eb", borderRadius:8, padding:10, boxShadow:"0 8px 24px rgba(0,0,0,0.18)", width:220 }}>
+              <select autoFocus style={{ width:"100%", border:"1px solid #e5e7eb", borderRadius:6, padding:"6px 8px", fontSize:13, fontFamily:"inherit", marginBottom:6 }}
+                value={linkType} onChange={e=>setLinkType(e.target.value)}>
+                <option value="website">Website</option>
+                <option value="email">Email</option>
+                <option value="phone">Phone</option>
+              </select>
+              <input style={{ width:"100%", border:"1px solid #e5e7eb", borderRadius:6, padding:"6px 8px", fontSize:13, fontFamily:"inherit", marginBottom:8, boxSizing:"border-box" }}
+                placeholder={linkType==="email" ? "jane@compass.com" : linkType==="phone" ? "804.555.1234" : "https://"}
+                value={linkValue} onChange={e=>setLinkValue(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); applyInlineLink(); } if (e.key === "Escape") setLinkPopup(null); }} />
+              <div style={{ display:"flex", gap:6 }}>
+                <button onClick={()=>setLinkPopup(null)} style={{ flex:1, background:"#f3f4f6", border:"none", borderRadius:6, padding:"6px 0", fontSize:13, fontWeight:600, color:"#374151", cursor:"pointer", fontFamily:"inherit" }}>Cancel</button>
+                <button onClick={applyInlineLink} disabled={!linkValue.trim()} style={{ flex:1, background: linkValue.trim() ? "#0051d5" : "#93c5fd", border:"none", borderRadius:6, padding:"6px 0", fontSize:13, fontWeight:600, color:"#fff", cursor: linkValue.trim() ? "pointer" : "default", fontFamily:"inherit" }}>Apply</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
 
-function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelectedRowId, selectedElId, setSelectedElId, selectedRow, selectedEl, onAddRow, onAddEl, onAddBanner, onAddBadgeRow, onDeleteEl, onDeleteRow, onDuplicateRow, onDuplicateEl, onReorderRows, onMoveRowUp, onMoveRowDown, onMoveElUp, onMoveElDown, onMoveElToCol, onDeleteColumn, onAddColumn, selectedColId, setSelectedColId, onUpdateColStyle, onUpdateColWidths, onSwapElStyleKeys, onUpdateElStyleMulti, onUpdateElContentAndStyle, onUndo, onRedo, canUndo, canRedo, onUpdateElStyle, onUpdateElContent, onUpdateRowStyle, onUpdateName, onSave, onNavigate, prevScreen, lastSavedAt, onShareLink, mediaLibrary, onAddMedia, onUpdateProfileField, adminMode, isEditingTemplate, onOpenTemplateSaveModal }) {
+function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, setEditorTab, selectedRowId, setSelectedRowId, selectedElId, setSelectedElId, selectedRow, selectedEl, onAddRow, onAddEl, onAddBanner, onAddBadgeRow, onDeleteEl, onDeleteRow, onDuplicateRow, onDuplicateEl, onReorderRows, onMoveRowUp, onMoveRowDown, onMoveElUp, onMoveElDown, onMoveElToCol, onDeleteColumn, onAddColumn, selectedColId, setSelectedColId, onUpdateColStyle, onUpdateColWidths, onSwapElStyleKeys, onUpdateElStyleMulti, onUpdateElContentAndStyle, onUndo, onRedo, canUndo, canRedo, onUpdateElStyle, onUpdateElContent, onUpdateRowStyle, onUpdateName, onSave, onSaveSilent, onNavigate, prevScreen, lastSavedAt, onShareLink, mediaLibrary, onAddMedia, onUpdateProfileField, adminMode, isEditingTemplate, onOpenTemplateSaveModal }) {
   const inputStyle = { width:"100%", border:"1px solid #e5e7eb", borderRadius:6, padding:"6px 8px", fontSize:15, fontFamily:"inherit", outline:"none" };
   const propLabel = { fontSize:15, fontWeight:600, color:"#6b7280", marginBottom:4, display:"block" };
+
+  // Backs the toolbar's Link button (see the Row 2 formatting bar below):
+  // clicking it selects the element that's actually focused for editing
+  // (which can differ from selectedElId while inline-editing text), scrolls
+  // the Link section of the right-hand panel into view, and gives it a
+  // brief highlight so it's obvious where to look rather than making
+  // someone hunt for it themselves.
+  const linkSectionRef = useRef(null);
+  const [linkHighlight, setLinkHighlight] = useState(false);
+  function jumpToLinkField(elId) {
+    setSelectedElId(elId);
+    setTimeout(() => {
+      linkSectionRef.current?.scrollIntoView({ behavior:"smooth", block:"center" });
+      setLinkHighlight(true);
+      setTimeout(() => setLinkHighlight(false), 1600);
+    }, 50);
+  }
 
   // Delete/Backspace removes the selected element -- guarded against firing
   // while the user is actually typing (a text input, a padding field, or
@@ -6049,6 +7025,24 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
   // capped at 1.38 so nothing changes on screens that already have room.
   const CANVAS_MAX_SCALE = 1.38;
   const [canvasScale, setCanvasScale] = useState(CANVAS_MAX_SCALE);
+  // The canvas auto-scales to fit whatever screen space is available -- up
+  // to 138% on a roomy screen, down to 50% on a cramped one. That's a
+  // deliberate, useful feature for making the most of the available window,
+  // but it means the canvas is essentially NEVER guaranteed to be showing
+  // true, real-world size -- a stored value like a 23px padding can look
+  // bigger or smaller on screen than it actually is, with no visual cue
+  // that anything's been scaled at all. That's a genuine WYSIWYG gap, not
+  // something to just account for mentally: two people on two different
+  // monitors (or the same person resizing their browser) can look at the
+  // identical design and see the same padding rendering at visibly
+  // different sizes on screen, none of which match what a recipient's
+  // email client will actually show (email clients render signatures at
+  // their literal, unscaled pixel dimensions always). actualSizeLocked
+  // lets someone force the canvas to genuine 100% on demand -- the one
+  // scale that's guaranteed to match the real exported/shared result
+  // pixel-for-pixel -- instead of only ever being able to verify true
+  // spacing by leaving the editor to check the share-link preview.
+  const [actualSizeLocked, setActualSizeLocked] = useState(false);
   useEffect(() => {
     const el = canvasWrapperRef.current;
     if (!el) return;
@@ -6057,16 +7051,18 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
     // that before dividing by 600 to get the scale that just fits.
     const RESERVED_WIDTH = 44 + 40;
     function recalc() {
+      if (actualSizeLocked) { setCanvasScale(1); return; }
       const available = el.clientWidth - RESERVED_WIDTH;
       if (available <= 0) return;
       const fitScale = available / 600;
       setCanvasScale(Math.min(CANVAS_MAX_SCALE, Math.max(0.5, fitScale)));
     }
     recalc();
+    if (actualSizeLocked) return; // no need to watch resizes while locked at 1
     const ro = new ResizeObserver(recalc);
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [actualSizeLocked]);
 
   // Drag-and-drop from sidebar state
   const [dragOver, setDragOver] = useState(null); // {rowId, colId, elIdx}
@@ -6079,6 +7075,11 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
   const [pendingBadgeSlot, setPendingBadgeSlot] = useState(null); // {elId, index}
   const [draggingBadgeIdx, setDraggingBadgeIdx] = useState(null);
   const [cropModalOpen, setCropModalOpen] = useState(false);
+  // Which badge slot (by index) is currently open in the crop modal, or
+  // null when none is. Separate from cropModalOpen (which is for the
+  // single-image Photo/Logo/Image crop flow) since a badges element has
+  // several independently-croppable images, not just one.
+  const [croppingBadgeIdx, setCroppingBadgeIdx] = useState(null);
   // Selecting an image element auto-switches the sidebar to the Media tab
   // (so you can immediately swap the image). Without tracking WHY it's on
   // Media, though, it stayed there even after deselecting or picking a
@@ -6256,6 +7257,12 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
   }
 
   async function copyHtml() {
+    // Commits any pending edits first -- the copy itself already reflects
+    // the live in-memory design regardless, but this keeps what's actually
+    // persisted to Firestore in sync with whatever was just copied out,
+    // rather than depending on the ~1.2s debounced autosave to catch up
+    // afterward on its own.
+    await onSaveSilent?.();
     const html = await generateHTML();
     if (tryExecCommandCopy(html, /*asPlainText*/ true)) {
       setCopiedHtml(true); setCopyFailed(false); setTimeout(() => setCopiedHtml(false), 2000);
@@ -6272,6 +7279,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
   // tryExecCommandCopy for why).
 
   async function copyRich() {
+    await onSaveSilent?.();
     const html = await generateHTML();
     // Try execCommand first (most likely to actually work in this iframe).
     if (tryExecCommandCopy(html, false)) {
@@ -6314,9 +7322,18 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
     e.target.value = "";
   }
 
-  function handleMediaClick(url) {
+  async function handleMediaClick(url) {
     if (pendingBadgeSlot) {
-      onUpdateElStyle(`badge_${pendingBadgeSlot.index}`, url);
+      const idx = pendingBadgeSlot.index;
+      // Stash the pristine picked image as the "original" alongside the
+      // displayed one -- cropping always reopens from this, never from a
+      // previous crop result, so re-cropping never compounds. badgeAspect
+      // is what lets this badge's box shrink/grow to its own real shape
+      // (a wide networking-group logo, say) instead of every badge being
+      // forced into the same square regardless of what was actually
+      // uploaded -- see the "badges" render case for how it's used.
+      const aspect = await getImageAspect(url);
+      onUpdateElStyleMulti({ [`badge_${idx}`]: url, [`badgeOriginal_${idx}`]: url, [`badgeAspect_${idx}`]: String(aspect), [`badgeOriginalAspect_${idx}`]: String(aspect) });
       setPendingBadgeSlot(null);
       setEditorTab("blocks");
       return;
@@ -6335,7 +7352,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
   // -- Column resize ------------------------------------------------------
   function startColDrag(e, colIdx, row) {
     e.preventDefault(); e.stopPropagation();
-    const ws = row.columns.map(c => parseFloat(c.style?.width || `${Math.floor(100/row.columns.length)}`));
+    const ws = row.columns.map(c => parseFloat(c.style?.width || `${100/row.columns.length}`));
     setDraggingColIdx(colIdx); setDragStartX(e.clientX); setDragStartWidths(ws);
   }
 
@@ -6357,8 +7374,8 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
     // two separate onUpdateRowStyle calls here caused col 1 to freeze at its original
     // width while col 2 grew without bound.
     onUpdateColWidths(row.id, {
-      [row.columns[leftIdx].id]: Math.round(newLeft) + "%",
-      [row.columns[rightIdx].id]: Math.round(newRight) + "%",
+      [row.columns[leftIdx].id]: (Math.round(newLeft*10)/10) + "%",
+      [row.columns[rightIdx].id]: (Math.round((totalLR-Math.round(newLeft*10)/10)*10)/10) + "%",
     });
   }
 
@@ -6660,6 +7677,28 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
       <div ref={canvasWrapperRef} onClick={()=>{ setSelectedElId(null); setSelectedRowId(null); setSelectedColId(null); }}
         style={{ flex:1, background:"#E8E8E8", overflowY:"auto", padding:"16px 20px", display:"flex", flexDirection:"column", gap:12, position:"relative" }}>
 
+        {/* Zoom indicator + Actual Size toggle -- the canvas auto-scales to
+            fit the window (see canvasScale above), so what's on screen is
+            essentially never guaranteed to be true size. Showing the
+            current percentage makes that scaling visible instead of silent,
+            and this button forces genuine 100% on demand -- the one scale
+            that's guaranteed to match the real exported/shared signature
+            pixel-for-pixel, without needing to leave the editor to check.
+            Anchored to the BOTTOM right, not top -- top collided with the
+            existing header bar's own buttons (Save/Copy to Clipboard),
+            which already occupy that same top-right corner of this wrapper. */}
+        <div onClick={e=>e.stopPropagation()} style={{ position:"absolute", bottom:16, right:20, zIndex:20, display:"flex", alignItems:"center", gap:8, background:"#fff", border:"1px solid #e5e7eb", borderRadius:8, padding:"4px 6px", boxShadow:"0 1px 4px rgba(0,0,0,0.08)" }}>
+          <span style={{ fontSize:13, color:"#6b7280", fontWeight:600, minWidth:38, textAlign:"right" }}>{Math.round(canvasScale*100)}%</span>
+          {/* Label is the ACTION this performs (the mode it switches TO),
+              not the current mode -- showing "Fit to Screen" while already
+              in fit-to-screen mode reads as a state label, not a button. */}
+          <button onClick={()=>setActualSizeLocked(a=>!a)}
+            style={{ display:"flex", alignItems:"center", gap:5, padding:"5px 10px", borderRadius:6, border: actualSizeLocked ? "1.5px solid #0051d5" : "1px solid #e5e7eb", background: actualSizeLocked ? "#eff6ff" : "#f9fafb", color: actualSizeLocked ? "#0051d5" : "#374151", fontSize:13, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
+            <Icon name="fit_screen" size={14} color={actualSizeLocked ? "#0051d5" : "#6b7280"} />
+            {actualSizeLocked ? "Fit to Screen" : "Actual Size"}
+          </button>
+        </div>
+
         {/* Combined header: Row 1 = actions, Row 2 = always-visible formatting bar */}
         <div onClick={e=>e.stopPropagation()} style={{ background:"#fff", borderRadius:10, border:"1px solid #e5e7eb", flexShrink:0, marginBottom:0 }}>
 
@@ -6682,6 +7721,19 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
             </button>
           </div>
           <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+            {/* When off, Smart Fields (Name, Photo, Phone, etc.) stop reading
+                from and writing to this account's own profile -- instead
+                they read/write a set of overrides stored on THIS signature
+                only. That's what makes it safe for staff to type an agent's
+                real name/photo/contact info into a design without it
+                silently overwriting their own profile in Firestore. */}
+            <button onClick={onToggleAutofill} title={autofillEnabled ? "Turn off to manually type this agent's details without changing your own profile" : "Turn on to autofill from your own profile again"}
+              style={{ display:"flex", alignItems:"center", gap:7, background: autofillEnabled ? "#f9fafb" : "#fef3c7", border: autofillEnabled ? "1px solid #d1d5db" : "1px solid #fbbf24", borderRadius:6, padding:"5px 10px", cursor:"pointer", fontFamily:"inherit", marginRight:2 }}>
+              <div style={{ position:"relative", width:28, height:16, borderRadius:8, background: autofillEnabled ? "#0051d5" : "#d1d5db", transition:"background 0.15s", flexShrink:0 }}>
+                <div style={{ position:"absolute", top:2, left: autofillEnabled ? 14 : 2, width:12, height:12, borderRadius:"50%", background:"#fff", transition:"left 0.15s" }} />
+              </div>
+              <span style={{ fontSize:14, fontWeight:600, color: autofillEnabled ? "#374151" : "#92400e" }}>Autofill My Details</span>
+            </button>
             {lastSavedAt && (
               <span style={{ fontSize:14, color:"#9ca3af", marginRight:2 }}>
                 Saved {Math.max(0, Math.round((Date.now()-lastSavedAt.getTime())/1000))<5 ? "just now" : new Date(lastSavedAt).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}
@@ -6743,10 +7795,20 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                   })()}
                 </select>
                 <div style={{ width:1, height:22, background:"#e5e7eb", margin:"0 2px" }} />
-                <div style={{ display:"flex", alignItems:"center", gap:5 }} title="Text Color">
-                  <span style={{ fontSize:15, fontWeight:700, borderBottom:`3px solid ${(el.style?.color||"#374151").replace("colored","#374151")}`, lineHeight:1.1, paddingBottom:1 }}>A</span>
-                  <input type="color" style={{ width:26, height:26, border:"1px solid #e5e7eb", borderRadius:4, padding:1, cursor:"pointer" }}
-                    value={(el.style?.color||"#374151").replace("colored","#374151")} onChange={e=>onUpdateElStyle("color",e.target.value)} />
+                <div style={{ display:"flex", gap:8, alignItems:"center" }} title="Text Color">
+                  {/* Same swatch-plus-hex-field layout as Background/Border Color
+                      elsewhere in the panel, instead of the small "A" swatch this used
+                      to be. The swatch still opens the OS's native color picker if
+                      clicked (the macOS system panel on a Mac, which nothing here can
+                      control or default to a hex tab) -- but now there's always a
+                      same-sized hex field right next to it to type/paste into instead. */}
+                  <div style={{ position:"relative", width:40, height:32, flexShrink:0 }}>
+                    <div style={{ width:40, height:32, borderRadius:"6px", border:"1px solid #e5e7eb", background: (el.style?.color||"#374151").replace("colored","#374151"), cursor:"pointer" }} />
+                    <input type="color" style={{ position:"absolute", inset:0, opacity:0, width:"100%", height:"100%", cursor:"pointer" }}
+                      value={(() => { const v = (el.style?.color||"#374151").replace("colored","#374151"); return /^#[0-9a-fA-F]{6}$/.test(v) ? v : "#374151"; })()}
+                      onChange={e=>onUpdateElStyle("color",e.target.value)} />
+                  </div>
+                  <input style={{ ...inputStyle, flex:1, width:90 }} value={(el.style?.color||"#374151").replace("colored","#374151")} onChange={e=>onUpdateElStyle("color",e.target.value)} />
                 </div>
                 <div style={{ width:1, height:22, background:"#e5e7eb", margin:"0 2px" }} />
                 {[
@@ -6788,6 +7850,12 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                   </button>;
                 })}
                 <div style={{ width:1, height:22, background:"#e5e7eb", margin:"0 2px" }} />
+                <button onMouseDown={e=>{ e.preventDefault(); jumpToLinkField(el.id); }} title="Add or edit this element's link"
+                  style={{ width:32,height:32,border:`1.5px solid ${el.linkType?"#0051d5":"#e5e7eb"}`,borderRadius:6,
+                    background:el.linkType?"#eff6ff":"transparent",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center" }}>
+                  <Icon name="link" size={17} color={el.linkType?"#0051d5":"#6b7280"} />
+                </button>
+                <div style={{ width:1, height:22, background:"#e5e7eb", margin:"0 2px" }} />
                 <button onMouseDown={e=>{e.preventDefault();onUpdateElStyle("textTransform",el.style?.textTransform==="uppercase"?"":"uppercase");}}
                   style={{ fontSize:11,fontWeight:800,padding:"4px 10px",borderRadius:6,letterSpacing:0.5,fontFamily:"inherit",cursor:"pointer",height:32,
                     border:`1.5px solid ${el.style?.textTransform==="uppercase"?"#0051d5":"#e5e7eb"}`,
@@ -6812,7 +7880,13 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
 
                 {/* Canvas body -- capped at 600px + right gutter for row badges,
                     top gutter for column badges */}
-        <div style={{ maxWidth:900, margin:"0 auto", paddingRight:44, paddingTop:8, boxSizing:"border-box", width:"100%", display:"flex", justifyContent:"center", overflow:"hidden" }}>
+        {/* paddingTop bumped from 8 to 24 -- this wrapper clips anything above
+            it (overflow:hidden), and the column-select badge above now floats
+            18px above row 1's own top edge (see ColSelectBadge) instead of
+            sitting inside the column. Without this extra headroom, row 1's
+            badge specifically would get clipped by this boundary even though
+            every other row has enough natural gap above it already. */}
+        <div style={{ maxWidth:900, margin:"0 auto", paddingRight:44, paddingTop:24, boxSizing:"border-box", width:"100%", display:"flex", justifyContent:"center", overflow:"hidden" }}>
         <div style={{ width:600, flexShrink:0, transform:`scale(${canvasScale})`, transformOrigin:"top center", marginBottom: canvasContentHeight*(canvasScale-1) }}>
         <div ref={canvasRef} className="canvas-container" style={{ background:"#fff", border:"1px solid #e5e7eb", width:600, maxWidth:600, margin:"0", boxSizing:"border-box", position:"relative" }}
           onClick={() => { setSelectedRowId(null); setSelectedElId(null); setSelectedColId(null); }}
@@ -6845,9 +7919,27 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
               onEnter={setRowInsertGap} onLeave={(i)=>setRowInsertGap(prev=>prev===i?null:prev)}
               onDropRow={(cols,idx)=>{ guardedAddRow(cols, idx); setLayoutDragActive(false); }} />
             <div style={{ position:"relative" }}>
-            {/* Row select toggle in the grey margin on the right */}
+            {/* Row select toggle in the grey margin on the right, plus move
+                up/down -- these used to be a separate badge floating INSIDE
+                the row's own top-right corner (top:2, right:2), directly
+                overlapping whatever content was there (visible, for example,
+                in a narrow third column). Moved below this same
+                outside-the-row badge instead, so nothing here ever sits on
+                top of the actual design. */}
             <RowSelectBadge rowIdx={ri} isSelected={row.id===selectedRowId}
               onClick={e=>{ e.stopPropagation(); setSelectedRowId(row.id===selectedRowId?null:row.id); setSelectedElId(null); setSelectedColId(null); }} />
+            {row.id===selectedRowId && (
+              <div style={{ position:"absolute", right:-38, top:"calc(50% + 32px)", display:"flex", flexDirection:"column", gap:3, zIndex:10 }}>
+                <button onClick={e=>{ e.stopPropagation(); onMoveRowUp(row.id); }} title="Move row up"
+                  style={{ background:"#0051d5", border:"none", borderRadius:3, width:18, height:18, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", padding:0 }}>
+                  <Icon name="arrow_upward" size={11} color="#fff" />
+                </button>
+                <button onClick={e=>{ e.stopPropagation(); onMoveRowDown(row.id); }} title="Move row down"
+                  style={{ background:"#0051d5", border:"none", borderRadius:3, width:18, height:18, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", padding:0 }}>
+                  <Icon name="arrow_downward" size={11} color="#fff" />
+                </button>
+              </div>
+            )}
             <div
               onClick={e => { if(e.target === e.currentTarget || !selectedElId) { setSelectedRowId(row.id); setSelectedElId(null); setSelectedColId(null); }}}
               draggable
@@ -6890,37 +7982,17 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                 } : {}),
                 cursor:"grab"
               }}>
-              {/* Row label + drag handle, shown when selected */}
-              <div style={{ position:"absolute", top:2, right:2, display:"flex", alignItems:"center", gap:3, opacity: row.id===selectedRowId?1:0, pointerEvents: row.id===selectedRowId?"auto":"none", zIndex:3 }}>
-                <button onClick={e=>{ e.stopPropagation(); onMoveRowUp(row.id); }} title="Move row up"
-                  style={{ background:"#0051d5", border:"none", borderRadius:3, width:18, height:18, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", padding:0 }}>
-                  <Icon name="arrow_upward" size={11} color="#fff" />
-                </button>
-                <button onClick={e=>{ e.stopPropagation(); onMoveRowDown(row.id); }} title="Move row down"
-                  style={{ background:"#0051d5", border:"none", borderRadius:3, width:18, height:18, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", padding:0 }}>
-                  <Icon name="arrow_downward" size={11} color="#fff" />
-                </button>
-                <div title="Drag to reorder" style={{ background:"#0051d5", color:"#fff", borderRadius:3, padding:"1px 5px", fontSize:8, fontWeight:700, display:"flex", alignItems:"center", gap:2, cursor:"grab" }}>
-                  <Icon name="drag_indicator" size={11} color="#fff" /> Row {ri+1}
-                </div>
-              </div>
+              {/* Row move/drag controls now live in the outside-right badge
+                  above (RowSelectBadge + move buttons), not floating inside
+                  the row's own content area. */}
               <table cellPadding="0" cellSpacing="0" style={{ width:"100%", borderCollapse:"collapse", tableLayout:"fixed" }}>
                 <tbody><tr>
                   {row.columns.map((col, ci) => {
-                    // Match the export renderer: if a column holds a photo,
-                    // give it an explicit pixel width equal to the photo size
-                    // (+ the column's own left/right padding) instead of a
-                    // percentage. Under the fixed table layout a percentage
-                    // column narrower than the photo squished a circle into an
-                    // oval on the live canvas; pixel-sizing the column keeps the
-                    // shape true and makes the canvas agree with the pasted
-                    // signature. Border now sits inside the photo box
-                    // (box-sizing:border-box), so it adds nothing to this width.
-                    const photoElC = col.elements.find(el => el.type === "dynamic" && el.subtype === "photo");
-                    const photoSizeC = photoElC ? (String(photoElC.style?.width||"").includes("%") ? 90 : (parseInt(photoElC.style?.width) || 90)) : null;
-                    const cPadL = col.style?.paddingLeft ? parseInt(col.style.paddingLeft) || 0 : 0;
-                    const cPadR = col.style?.paddingRight ? parseInt(col.style.paddingRight) || 0 : 0;
-                    const colW = photoSizeC ? `${photoSizeC + cPadL + cPadR}px` : (col.style?.width || `${Math.floor(100/row.columns.length)}%`);
+                    // Column width comes only from the column itself (equal
+                    // by default, or whatever was set manually) -- never from
+                    // its contents. Photos/images scale down to fit instead.
+                    const nColsC = row.columns.length;
+                    const colW = col.style?.width || equalColPct(nColsC);
                     const isSelCol = selectedColId === col.id;
                     const gutter = row.style?.columnGap || "10px";
                     return (
@@ -6994,7 +8066,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                             )}
                             {isTextEditable ? (
                               <InlineEditableText
-                                key={el.id} el={el} profile={profile}
+                                key={el.id} el={el} profile={profile} autofillEnabled={autofillEnabled}
                                 onChangeContent={val => { setSelectedElId(el.id); onUpdateElContent(val); }}
                                 onChangeProfileField={(field,val) => onUpdateProfileField(field, val)}
                                 onFocusEl={()=>{ setFocusedElId(el.id); setSelectedElId(el.id); setSelectedRowId(row.id); }}
@@ -7106,14 +8178,21 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
               </div>
             )}
 
-            {/* Link -- lets any text element become clickable, pointing to a
-                website, an email address (mailto:), or a phone number
-                (tel:). linkType tells buildLinkHref() which scheme to apply
-                so the person can just type "jane@compass.com" or a phone
-                number as-is instead of needing to know the mailto:/tel:
-                syntax themselves. */}
-            {selectedEl.type==="text" && (
-              <div style={{ marginBottom:10 }}>
+            {/* Link -- lets any text-like element become clickable, pointing
+                to a website, an email address (mailto:), or a phone number
+                (tel:). Covers plain Text blocks AND Smart Fields (Name,
+                Title, Phone, Email, Address, etc.) -- previously restricted
+                to just Text, even though there was never a real reason a
+                Smart Field couldn't be linked too. linkType tells
+                buildLinkHref() which scheme to apply so the person can just
+                type "jane@compass.com" or a phone number as-is instead of
+                needing to know the mailto:/tel: syntax themselves. */}
+            {/* subtype==="phones" is the combined Mobile+Office field -- it's
+                not a key in DYNAMIC_PROFILE_FIELD (only the separate "phone"
+                and "mobile" fields are), so it needs its own explicit check
+                here, same as the toolbar's isText condition already has. */}
+            {(selectedEl.type==="text" || selectedEl.subtype==="phones" || (selectedEl.type==="dynamic" && DYNAMIC_PROFILE_FIELD[selectedEl.subtype])) && (
+              <div ref={linkSectionRef} style={{ borderRadius:8, padding: linkHighlight ? 8 : 0, margin: linkHighlight ? -8 : 0, marginBottom: linkHighlight ? 2 : 10, background: linkHighlight ? "#eff6ff" : "transparent", boxShadow: linkHighlight ? "0 0 0 2px #0051d5" : "none", transition:"background 0.3s, box-shadow 0.3s" }}>
                 <span style={propLabel}>Link</span>
                 <select style={inputStyle} value={selectedEl.linkType||""} onChange={e=>{
                   onUpdateElStyle("__linkType__", e.target.value);
@@ -7187,7 +8266,56 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                     <Icon name="crop" size={16} /> Crop Image
                   </button>
                 )}
-                <div style={{ marginTop:8 }}><span style={propLabel}>Corner Radius</span><DimensionInput style={inputStyle} placeholder="0px" value={selectedEl.style?.borderRadius||""} onChange={v=>onUpdateElStyle("borderRadius",v)}/></div>
+                {/* Shape + per-corner radius -- same options headshots have. */}
+                <div style={{ marginTop:8 }}>
+                  <span style={propLabel}>Shape</span>
+                  <div style={{ display:"flex", gap:8, marginBottom:10 }}>
+                    {[
+                      {val:"circle", label:"Circle", r:"50%"},
+                      {val:"square", label:"Square", r:"0px"},
+                    ].map(opt => {
+                      const active = (selectedEl.style?.imageShape==="circle" ? "circle" : "square") === opt.val;
+                      return (
+                        <button key={opt.val} onClick={()=>{
+                          if (opt.val === "circle") {
+                            // A circle needs equal pixel width and height.
+                            const wNum = parseFloat(selectedEl.style?.width);
+                            const hNum = parseFloat(selectedEl.style?.height);
+                            const wIsPx = /px$/i.test(String(selectedEl.style?.width||""));
+                            const hIsPx = /px$/i.test(String(selectedEl.style?.height||""));
+                            const size = (wIsPx && wNum) ? wNum : (hIsPx && hNum) ? hNum : 120;
+                            onUpdateElStyleMulti({ imageShape:"circle", width:`${size}px`, height:`${size}px`, sizeLocked:"true" });
+                          } else {
+                            onUpdateElStyle("imageShape","square");
+                          }
+                        }}
+                          style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:5, padding:"8px 4px", border:`2px solid ${active?"#0051d5":"#e5e7eb"}`, borderRadius:6, background:active?"#eff6ff":"#f9fafb", cursor:"pointer" }}>
+                          <div style={{ width:28, height:28, background:active?"#0051d5":"#d1d5db", borderRadius:opt.r }} />
+                          <span style={{ fontSize:15, fontWeight:700, color:active?"#0051d5":"#6b7280" }}>{opt.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div style={{ marginBottom:10 }}>
+                  <span style={propLabel}>Corner Radius</span>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:5 }}>
+                    {[["Top Left","borderRadiusTL"],["Top Right","borderRadiusTR"],["Bottom Left","borderRadiusBL"],["Bottom Right","borderRadiusBR"]].map(([lbl,key])=>(
+                      <div key={key}>
+                        <span style={{ fontSize:15, color:"#9ca3af", display:"block", marginBottom:2 }}>{lbl}</span>
+                        <DimensionInput style={inputStyle} placeholder="0px" value={selectedEl.style?.[key]||""} onChange={v=>onUpdateElStyle(key,v)}/>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ marginTop:6 }}>
+                    <span style={{ fontSize:15, color:"#9ca3af", display:"block", marginBottom:2 }}>All corners at once</span>
+                    <input style={inputStyle} placeholder="e.g. 8px" value={selectedEl.style?.borderRadiusAll||""}
+                      onChange={e=>{
+                        const v = e.target.value;
+                        onUpdateElStyleMulti({ borderRadiusAll:v, borderRadiusTL:v, borderRadiusTR:v, borderRadiusBL:v, borderRadiusBR:v });
+                      }}/>
+                  </div>
+                </div>
                 <div style={{ marginTop:8 }}><span style={propLabel}>Object Fit</span>
                   <select style={inputStyle} value={selectedEl.style?.objectFit||"cover"} onChange={e=>onUpdateElStyle("objectFit",e.target.value)}>
                     <option value="cover">Cover</option><option value="contain">Contain</option><option value="fill">Fill</option>
@@ -7466,7 +8594,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                 </div>
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:12 }}>
                   <div>
-                    <span style={propLabel}>Badge Size</span>
+                    <span style={propLabel}>Badge Width</span>
                     <DimensionInput style={inputStyle} value={selectedEl.style?.badgeSize||"60px"} onChange={v=>onUpdateElStyle("badgeSize",v)} />
                   </div>
                   <div>
@@ -7506,7 +8634,14 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                           e.preventDefault(); e.stopPropagation();
                           const fromIdx = parseInt(e.dataTransfer.getData("badge-drag-index"));
                           if (isNaN(fromIdx) || fromIdx === i) return;
-                          onSwapElStyleKeys(selectedEl.id, `badge_${fromIdx}`, `badge_${i}`);
+                          // Every per-badge field travels with its image on
+                          // reorder -- without this, dragging badge images
+                          // around left the link, aspect ratio, and crop
+                          // data all pointing at whatever badge USED to be
+                          // in that slot instead of following the image.
+                          ["badge", "badgeLink", "badgeOriginal", "badgeAspect", "badgeOriginalAspect", "badgeCropZoom", "badgeCropOffsetX", "badgeCropOffsetY"].forEach(key => {
+                            onSwapElStyleKeys(selectedEl.id, `${key}_${fromIdx}`, `${key}_${i}`);
+                          });
                           setDraggingBadgeIdx(null);
                         }}
                         style={{ opacity: isDragging?0.4:1, outline: isDropTarget?"2px dashed #0051d5":"none", outlineOffset:2, borderRadius:6, transition:"opacity 0.1s", position:"relative" }}>
@@ -7532,10 +8667,30 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                           <div style={{ fontSize:15, color:src?"#0051d5":"#9ca3af", fontWeight:600, textAlign:"center" }}>
                             {src ? `Badge ${i+1}` : `+ Badge ${i+1}`}
                           </div>
-                          <input type="file" accept="image/*" style={{ display:"none" }}
+                          <input type="file" accept="image/png,image/jpeg" style={{ display:"none" }}
                             onChange={e=>{
                               const f=e.target.files?.[0]; if(!f) return;
-                              handleImageFile(f, (dataUrl) => { onUpdateElStyle(`badge_${i}`, dataUrl); onAddMedia(dataUrl, f.name); }, 140, {png:true}, auth);
+                              // Badges are PNG/JPG only -- SVG isn't just a
+                              // source of the aspect-ratio bugs fixed above,
+                              // Outlook doesn't render SVG images in email
+                              // AT ALL, so an SVG badge would look fine here
+                              // in the canvas and then simply not show up
+                              // for a big chunk of recipients. accept=
+                              // above steers most people away from picking
+                              // one in the file dialog, but doesn't stop
+                              // someone from choosing "All Files" and
+                              // selecting one anyway, so it's still checked
+                              // here.
+                              if (/svg/i.test(f.type) || /\.svg$/i.test(f.name)) {
+                                alert("SVG files aren't supported for badges -- please upload a PNG or JPG instead. (Outlook and some other email clients can't display SVG images at all.)");
+                                e.target.value = "";
+                                return;
+                              }
+                              handleImageFile(f, async (dataUrl) => {
+                                const aspect = await getImageAspect(dataUrl);
+                                onUpdateElStyleMulti({ [`badge_${i}`]: dataUrl, [`badgeOriginal_${i}`]: dataUrl, [`badgeAspect_${i}`]: String(aspect), [`badgeOriginalAspect_${i}`]: String(aspect) });
+                                onAddMedia(dataUrl, f.name);
+                              }, 140, {png:true}, auth);
                             }} />
                           <div style={{ fontSize:15, color:"#0051d5", textAlign:"center", marginTop:2, cursor:"pointer" }}
                             onClick={e=>{ e.preventDefault(); e.stopPropagation(); setPendingBadgeSlot({elId: selectedEl.id, index: i}); setEditorTab("media"); }}>
@@ -7543,10 +8698,23 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                           </div>
                         </label>
                         {src && (
-                          <button onClick={()=>onUpdateElStyle(`badge_${i}`,"")}
-                            style={{ width:"100%", fontSize:15, color:"#ef4444", background:"none", border:"none", cursor:"pointer", fontFamily:"inherit", marginTop:2 }}>
-                            Remove
-                          </button>
+                          <>
+                            <input type="text" placeholder="Link URL (optional)"
+                              value={selectedEl.style?.[`badgeLink_${i}`] || ""}
+                              onChange={e=>onUpdateElStyle(`badgeLink_${i}`, e.target.value)}
+                              onClick={e=>e.stopPropagation()}
+                              style={{ width:"100%", fontSize:13, border:"1px solid #e5e7eb", borderRadius:5, padding:"4px 6px", fontFamily:"inherit", marginTop:4, boxSizing:"border-box" }} />
+                            <div style={{ display:"flex", gap:6, marginTop:2 }}>
+                              <button onClick={e=>{ e.preventDefault(); e.stopPropagation(); setCroppingBadgeIdx(i); }}
+                                style={{ flex:1, fontSize:15, color:"#0051d5", background:"none", border:"none", cursor:"pointer", fontFamily:"inherit" }}>
+                                Crop
+                              </button>
+                              <button onClick={()=>onUpdateElStyle(`badge_${i}`,"")}
+                                style={{ flex:1, fontSize:15, color:"#ef4444", background:"none", border:"none", cursor:"pointer", fontFamily:"inherit" }}>
+                                Remove
+                              </button>
+                            </div>
+                          </>
                         )}
                       </div>
                     );
@@ -7657,7 +8825,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
         ) : selectedColId && selectedRow ? (
           /* -- Column Properties -- */
           <div>
-            <ColumnWidthBar row={selectedRow} startColDrag={startColDrag} selectedColId={selectedColId} />
+            <ColumnWidthBar row={selectedRow} startColDrag={startColDrag} selectedColId={selectedColId} onEqualize={()=>{ const m={}; selectedRow.columns.forEach(c=>{ m[c.id]=equalColPct(selectedRow.columns.length); }); onUpdateColWidths(selectedRow.id, m); }} />
             <ColPropertiesPanel
               key={selectedColId}
               col={selectedRow.columns.find(c=>c.id===selectedColId)}
@@ -7676,7 +8844,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
             </div>
 
             {/* Column width drag bar */}
-            <ColumnWidthBar row={selectedRow} startColDrag={startColDrag} selectedColId={selectedColId} />
+            <ColumnWidthBar row={selectedRow} startColDrag={startColDrag} selectedColId={selectedColId} onEqualize={()=>{ const m={}; selectedRow.columns.forEach(c=>{ m[c.id]=equalColPct(selectedRow.columns.length); }); onUpdateColWidths(selectedRow.id, m); }} />
 
             {/* Row background color */}
             <div style={{ marginBottom:10 }}>
@@ -7729,7 +8897,7 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
             </div>
             <div style={{ marginBottom:10 }}><span style={propLabel}>Padding Top</span><DimensionInput style={inputStyle} value={selectedRow.style?.paddingTop||"8px"} onChange={v=>onUpdateRowStyle(selectedRow.id,"paddingTop",v)}/></div>
             <div style={{ marginBottom:10 }}><span style={propLabel}>Padding Bottom</span><DimensionInput style={inputStyle} value={selectedRow.style?.paddingBottom||"8px"} onChange={v=>onUpdateRowStyle(selectedRow.id,"paddingBottom",v)}/></div>
-            <div style={{ marginBottom:10 }}><span style={propLabel}>Column Gap</span><input style={inputStyle} placeholder="10px" value={selectedRow.style?.columnGap||"10px"} onChange={e=>onUpdateRowStyle(selectedRow.id,"columnGap",e.target.value)}/></div>
+            <div style={{ marginBottom:10 }}><span style={propLabel}>Column Gap</span><DimensionInput style={inputStyle} placeholder="10px" value={selectedRow.style?.columnGap||"10px"} onChange={v=>onUpdateRowStyle(selectedRow.id,"columnGap",v)}/></div>
             <SideBorderSection label="Row Border" s={selectedRow.style||{}} propLabel={propLabel} inputStyle={inputStyle}
               widthKey="borderBottomWidth" colorKey="borderBottomColor"
               onUpdate={(k,v)=>onUpdateRowStyle(selectedRow.id,k,v)} />
@@ -7784,8 +8952,11 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
           : (s.borderRadiusTL||s.borderRadiusTR||s.borderRadiusBL||s.borderRadiusBR)
             ? `${s.borderRadiusTL||"0px"} ${s.borderRadiusTR||"0px"} ${s.borderRadiusBR||"0px"} ${s.borderRadiusBL||"0px"}`
             : "0px";
-        const w = parseFloat(selectedEl.style?.width) || 90;
-        const h = parseFloat(selectedEl.style?.height) || 90;
+        const isLockedC = s.sizeLocked !== "false";
+        const wPx = /px$/i.test(String(s.width||"")) ? parseFloat(s.width) : 0;
+        const hPx = /px$/i.test(String(s.height||"")) ? parseFloat(s.height) : 0;
+        const w = isImage ? (wPx || 90) : (parseFloat(selectedEl.style?.width) || 90);
+        const h = isImage ? ((s.imageShape==="circle" && isLockedC && wPx) ? wPx : (hPx || 90)) : (parseFloat(selectedEl.style?.height) || 90);
         return (
           <CropModal
             imageSrc={src}
@@ -7802,6 +8973,57 @@ function Editor({ sig, profile, editorTab, setEditorTab, selectedRowId, setSelec
                 onUpdateElStyleMulti({ croppedSrc: dataUrl, cropZoom:String(zoom), cropOffsetX:String(offsetX), cropOffsetY:String(offsetY) });
               }
               setCropModalOpen(false);
+            }}
+          />
+        );
+      })()}
+      {croppingBadgeIdx !== null && selectedEl && selectedEl.type==="badges" && (() => {
+        const i = croppingBadgeIdx;
+        const s = selectedEl.style || {};
+        // Always crops from the pristine original, same principle as
+        // Photo/Logo/Image above -- badgeOriginal_i is stashed the moment an
+        // image is picked for this slot and never overwritten afterward, so
+        // re-cropping re-frames the same source instead of compounding onto
+        // whatever the last crop produced. Falls back to the current
+        // (possibly already-cropped) image for any badge uploaded before
+        // this existed, since it won't have an original stashed.
+        const src = s[`badgeOriginal_${i}`] || s[`badge_${i}`];
+        if (!src) { setCroppingBadgeIdx(null); return null; }
+        // Crop frame matches this badge's ORIGINAL aspect ratio specifically
+        // (badgeOriginalAspect_i, stashed once at upload and never touched
+        // again) -- NOT badgeAspect_i, which tracks whatever the CURRENT
+        // active image's shape is and gets overwritten every time a crop is
+        // saved. Using the current value here was the actual bug: crop the
+        // image once (badgeAspect_i becomes that crop's own ratio, e.g. a
+        // prior square crop), reopen Crop later, and the frame would use
+        // that stale ratio while still showing the true wide original
+        // inside it -- original content, wrong-shaped frame around it.
+        // Falls back to badgeAspect_i, then 1, only for a badge that
+        // predates this original/current split entirely.
+        const cropAspect = parseFloat(s[`badgeOriginalAspect_${i}`]) || parseFloat(s[`badgeAspect_${i}`]) || 1;
+        return (
+          <CropModal
+            imageSrc={src}
+            aspectW={cropAspect} aspectH={1}
+            shapeRadius="0px"
+            fitMode="contain"
+            initialZoom={parseFloat(s[`badgeCropZoom_${i}`])||1}
+            initialOffsetX={parseFloat(s[`badgeCropOffsetX_${i}`])||0}
+            initialOffsetY={parseFloat(s[`badgeCropOffsetY_${i}`])||0}
+            onCancel={()=>setCroppingBadgeIdx(null)}
+            onSave={(dataUrl, {zoom, offsetX, offsetY}) => {
+              onUpdateElStyleMulti({
+                [`badge_${i}`]: dataUrl,
+                [`badgeOriginal_${i}`]: src,
+                [`badgeCropZoom_${i}`]: String(zoom),
+                [`badgeCropOffsetX_${i}`]: String(offsetX),
+                [`badgeCropOffsetY_${i}`]: String(offsetY),
+                // The crop frame matches cropAspect (this badge's own real
+                // shape), so the result keeps that same ratio rather than
+                // always coming out square.
+                [`badgeAspect_${i}`]: String(cropAspect),
+              });
+              setCroppingBadgeIdx(null);
             }}
           />
         );
