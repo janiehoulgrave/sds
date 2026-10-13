@@ -164,8 +164,13 @@ function sanitizeInlineLinkHtml(html) {
         if (child.tagName === "A" && child.getAttribute("href")) {
           const href = child.getAttribute("href").replace(/"/g, "&quot;");
           out += `<a href="${href}" style="color:inherit;text-decoration:underline;">${walk(child)}</a>`;
-        } else if (child.tagName === "BR" || child.tagName === "DIV" || child.tagName === "P") {
-          out += " " + walk(child);
+        } else if (child.tagName === "BR") {
+          // Real line breaks are kept (Enter in a text box makes a new line).
+          out += "<br>";
+        } else if (child.tagName === "DIV" || child.tagName === "P") {
+          // Browsers / pasted content wrap each extra line in a block --
+          // treat that as a line break too, instead of flattening to a space.
+          out += (out && !/<br>$/.test(out) ? "<br>" : "") + walk(child);
         } else {
           out += walk(child);
         }
@@ -173,7 +178,7 @@ function sanitizeInlineLinkHtml(html) {
     });
     return out;
   }
-  return walk(tmp).replace(/\s+/g, " ").trim();
+  return walk(tmp).replace(/\s+/g, " ").replace(/(\s*<br>\s*)+$/g, "").replace(/^(\s*<br>\s*)+/g, "").trim();
 }
 
 function interpolate(text, profile) {
@@ -2623,7 +2628,14 @@ function generateSigHTML(sig, profile) {
       const padR = cs.paddingRight ? parseInt(cs.paddingRight) || 0 : 0;
       const nCols = row.columns.length;
       const w = cs.width || equalColPct(nCols);
-      const gutterPx = ci > 0 ? (rs.columnGap ? (parseInt(rs.columnGap) || 0) : 10) : 0;
+      // Column Gap is split evenly: each side of a boundary between two
+      // columns gets half, so the gap sits centered between them instead of
+      // being taken entirely out of the column on its right.
+      const gapFull = rs.columnGap ? (parseInt(rs.columnGap) || 0) : 10;
+      const halfGap = gapFull / 2;
+      const gutterL = ci > 0 ? halfGap : 0;
+      const gutterR = ci < nCols-1 ? halfGap : 0;
+      const gutterPx = gutterL + gutterR;
       const wNumCol = parseFloat(w) || 0;
       const colOuterPx = /%$/.test(String(w)) ? 560 * wNumCol / 100 : wNumCol;
       const colMaxPx = colOuterPx ? Math.max(20, colOuterPx - padL - padR - gutterPx) : null;
@@ -2647,12 +2659,15 @@ function generateSigHTML(sig, profile) {
           // editor (which checks the raw string "0px", a non-empty and
           // therefore truthy value, before ever parsing it) correctly
           // showed 0.
-          const gutter = ci > 0 ? (rs.columnGap ? (parseInt(rs.columnGap) || 0) : 10) : 0;
           const ownPadL = cs.paddingLeft ? parseInt(cs.paddingLeft) || 0 : 0;
-          const total = ownPadL + gutter;
+          const total = ownPadL + gutterL;
           return total ? `padding-left:${total}px` : "";
         })(),
-        cs.paddingRight ? `padding-right:${cs.paddingRight}` : "",
+        (() => {
+          const ownPadR = cs.paddingRight ? parseInt(cs.paddingRight) || 0 : 0;
+          const total = ownPadR + gutterR;
+          return total ? `padding-right:${total}px` : "";
+        })(),
         cs.paddingTop ? `padding-top:${cs.paddingTop}` : "",
         cs.paddingBottom ? `padding-bottom:${cs.paddingBottom}` : "",
         cs.borderRightWidth ? `border-right:${cs.borderRightWidth} solid ${cs.borderRightColor||"#e5e7eb"}` : "",
@@ -5359,7 +5374,7 @@ function ColSelectBadge({ colIdx, isSelected, visible, onClick }) {
 }
 
 // Row select toggle shown in the grey area on the right of each row
-function RowSelectBadge({ rowIdx, isSelected, onClick }) {
+function RowSelectBadge({ rowIdx, isSelected, onClick, onDragStart, onDragEnd }) {
   const [hov, setHov] = useState(false);
   const color = (isSelected||hov) ? "#fff" : "#9ca3af";
   return (
@@ -5367,12 +5382,15 @@ function RowSelectBadge({ rowIdx, isSelected, onClick }) {
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
       onClick={onClick}
+      draggable={!!onDragStart}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
       style={{
         position:"absolute", right:-38, top:"50%", transform:"translateY(-50%)",
         background: isSelected ? "#0051d5" : hov ? "#3b82f6" : "#e5e7eb",
         color,
         borderRadius:3, padding:"4px 5px", fontSize:8, fontWeight:700,
-        cursor:"pointer", zIndex:10, userSelect:"none", transition:"all 0.1s",
+        cursor: onDragStart ? "grab" : "pointer", zIndex:10, userSelect:"none", transition:"all 0.1s",
         display:"flex", flexDirection:"column", alignItems:"center", gap:1,
         pointerEvents:"all"
       }}>
@@ -6877,7 +6895,15 @@ function InlineEditableText({ el, profile, autofillEnabled, onChangeContent, onC
         onFocus={handleFocus}
         onBlur={handleBlur}
         onDoubleClick={e => { e.stopPropagation(); setEditing(true); }}
-        onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); e.currentTarget.blur(); } }}
+        onKeyDown={e => {
+          if (e.key !== "Enter") return;
+          e.preventDefault();
+          // Plain text boxes (Text elements, and Smart Fields while Autofill
+          // is off) are free text: Enter starts a new line. Live profile
+          // fields stay single-line, where Enter just finishes the edit.
+          if (isPlainText && editing) { document.execCommand("insertLineBreak"); }
+          else if (!e.shiftKey) { e.currentTarget.blur(); }
+        }}
         onMouseUp={handleSelect}
         onKeyUp={e => { if (e.shiftKey || e.key.startsWith("Arrow")) handleSelect(); }}
         style={style}
@@ -7927,6 +7953,8 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
                 outside-the-row badge instead, so nothing here ever sits on
                 top of the actual design. */}
             <RowSelectBadge rowIdx={ri} isSelected={row.id===selectedRowId}
+              onDragStart={e=>{ e.stopPropagation(); e.dataTransfer.effectAllowed="move"; e.dataTransfer.setData("move-row", row.id); setSelectedRowId(row.id); setSelectedElId(null); }}
+              onDragEnd={()=>setRowDragOverId(null)}
               onClick={e=>{ e.stopPropagation(); setSelectedRowId(row.id===selectedRowId?null:row.id); setSelectedElId(null); setSelectedColId(null); }} />
             {row.id===selectedRowId && (
               <div style={{ position:"absolute", right:-38, top:"calc(50% + 32px)", display:"flex", flexDirection:"column", gap:3, zIndex:10 }}>
@@ -7994,13 +8022,16 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
                     const nColsC = row.columns.length;
                     const colW = col.style?.width || equalColPct(nColsC);
                     const isSelCol = selectedColId === col.id;
-                    const gutter = row.style?.columnGap || "10px";
+                    const gapNum = (() => { const g = parseFloat(row.style?.columnGap); return isNaN(g) ? 10 : g; })();
+                    const gutterLeft = ci > 0 ? gapNum/2 : 0;
+                    const gutterRight = ci < nColsC-1 ? gapNum/2 : 0;
                     return (
                       <td key={col.id} style={{
                         verticalAlign: col.style?.verticalAlign || "top",
                         width: colW,
                         padding: 0,
-                        paddingLeft: ci > 0 ? gutter : 0,
+                        paddingLeft: gutterLeft,
+                        paddingRight: gutterRight,
                         position: "relative",
                         background: col.style?.backgroundColor || "transparent",
                         outline: isSelCol ? "2px solid #0051d5" : "none",
@@ -8011,9 +8042,9 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
                         onClick={e => { e.stopPropagation(); setSelectedColId(col.id); setSelectedRowId(row.id); setSelectedElId(null); }}
                         onMouseEnter={()=>setHoveredColId(col.id)}
                         onMouseLeave={()=>setHoveredColId(h=>h===col.id?null:h)}
-                        onDragOver={e=>{ e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect="move"; setDragOver({rowId:row.id,colId:col.id}); }}
+                        onDragOver={e=>{ if (e.dataTransfer.types.includes("move-row")) return; e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect="move"; setDragOver({rowId:row.id,colId:col.id}); }}
                         onDragLeave={()=>setDragOver(null)}
-                        onDrop={e=>handleCanvasDrop(e, row.id, col.id)}
+                        onDrop={e=>{ if (e.dataTransfer.types.includes("move-row")) return; handleCanvasDrop(e, row.id, col.id); }}
                       >
                         {/* Column select badge -- floats above the column (in the
                             reserved top gutter) and only shows on hover of the
@@ -8053,8 +8084,8 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
                           <div key={el.id}
                             draggable
                             onDragStart={e=>{ e.stopPropagation(); e.dataTransfer.effectAllowed="move"; e.dataTransfer.setData("move-el", JSON.stringify({elId:el.id,fromRowId:row.id,fromColId:col.id})); }}
-                            onDragOver={e=>{e.preventDefault();e.stopPropagation();e.dataTransfer.dropEffect="move";setDragOver({rowId:row.id,colId:col.id,elIdx:eli});}}
-                            onDrop={e=>{e.stopPropagation();handleCanvasDrop(e,row.id,col.id,eli);}}
+                            onDragOver={e=>{ if (e.dataTransfer.types.includes("move-row")) return; e.preventDefault();e.stopPropagation();e.dataTransfer.dropEffect="move";setDragOver({rowId:row.id,colId:col.id,elIdx:eli});}}
+                            onDrop={e=>{ if (e.dataTransfer.types.includes("move-row")) return; e.stopPropagation();handleCanvasDrop(e,row.id,col.id,eli);}}
                             onClick={e=>{
                               e.stopPropagation(); setSelectedRowId(row.id); setSelectedColId(col.id); setSelectedElId(el.id);
                               if (isImageType) { setEditorTab("media"); autoMediaRef.current = true; }
