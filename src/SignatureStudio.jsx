@@ -2096,6 +2096,13 @@ function computeLineHeightPx(fontSize, lineHeight) {
   return `${Math.round(fSizeNum * 1.2)}px`;
 }
 
+// Exact equal share for N columns, as a decimal percentage (e.g. 6 columns =
+// 16.6667% each) so columns are truly even instead of being rounded to whole
+// percents with the leftover dumped on the last column.
+function equalColPct(n) {
+  return (n > 0 ? +(100 / n).toFixed(4) : 100) + "%";
+}
+
 function renderElementInner(el, profile, forCanvas, colMaxPx) {
   const s = el.style || {};
   const fSize = s.fontSize || "11px";
@@ -2615,7 +2622,7 @@ function generateSigHTML(sig, profile) {
       const padL = cs.paddingLeft ? parseInt(cs.paddingLeft) || 0 : 0;
       const padR = cs.paddingRight ? parseInt(cs.paddingRight) || 0 : 0;
       const nCols = row.columns.length;
-      const w = cs.width || (ci === nCols-1 ? `${100 - Math.floor(100/nCols)*(nCols-1)}%` : `${Math.floor(100/nCols)}%`);
+      const w = cs.width || equalColPct(nCols);
       const gutterPx = ci > 0 ? (rs.columnGap ? (parseInt(rs.columnGap) || 0) : 10) : 0;
       const wNumCol = parseFloat(w) || 0;
       const colOuterPx = /%$/.test(String(w)) ? 560 * wNumCol / 100 : wNumCol;
@@ -4106,7 +4113,7 @@ export default function App() {
         style: { verticalAlign:"top",
           // Every new column starts at the same width; the last one takes
           // the rounding remainder so they always total exactly 100%.
-          width: (i === cols-1 ? 100 - Math.floor(100/cols)*(cols-1) : Math.floor(100/cols)) + "%",
+          width: equalColPct(cols),
           ...(i < cols-1 && cols > 1 ? {borderRightWidth:"1px",borderRightColor:"#e5e7eb"} : {}) }
       }))
     };
@@ -4349,8 +4356,7 @@ export default function App() {
     if (!row || row.columns.length <= 1) return;
     const newCols = row.columns.filter(c => c.id !== colId);
     // Redistribute widths equally
-    const w = Math.floor(100/newCols.length);
-    newCols.forEach((c,i) => c.style = { ...c.style, width: (i===newCols.length-1 ? (100-(w*(newCols.length-1))) : w)+"%" });
+    newCols.forEach(c => c.style = { ...c.style, width: equalColPct(newCols.length) });
     pushSig({ ...activeSig, rows: activeSig.rows.map(r => r.id !== rowId ? r : { ...r, columns: newCols }) });
     setSelectedElId(null);
     showToast("Column removed");
@@ -4362,8 +4368,7 @@ export default function App() {
     if (!row || row.columns.length >= 6) return;
     const newCol = { id:"col-"+uuid(), elements:[], style:{ verticalAlign:"top" } };
     const newCols = [...row.columns, newCol];
-    const w = Math.floor(100/newCols.length);
-    newCols.forEach((c,i) => c.style = { ...c.style, width: (i===newCols.length-1 ? (100-(w*(newCols.length-1))) : w)+"%" });
+    newCols.forEach(c => c.style = { ...c.style, width: equalColPct(newCols.length) });
     pushSig({ ...activeSig, rows: activeSig.rows.map(r => r.id !== rowId ? r : { ...r, columns: newCols }) });
     showToast("Column added");
   }
@@ -5524,7 +5529,7 @@ function BannerUploadForm({ uploading, progress, error, onCancel, onUpload }) {
   );
 }
 
-function ColumnWidthBar({ row, startColDrag, selectedColId }) {
+function ColumnWidthBar({ row, startColDrag, selectedColId, onEqualize }) {
   if (row.columns.length <= 1) return null;
   const colors = ["#0051d5","#3b82f6","#93c5fd","#bfdbfe"];
   let left = 0;
@@ -5533,12 +5538,12 @@ function ColumnWidthBar({ row, startColDrag, selectedColId }) {
       <div style={{ fontSize:15, fontWeight:700, color:"#374151", marginBottom:8 }}>Column Widths</div>
       <div style={{ position:"relative", height:36, borderRadius:6, overflow:"visible", marginBottom:8, userSelect:"none", background:"#f3f4f6" }}>
         {row.columns.map((col, ci) => {
-          const w = parseFloat(col.style?.width || `${Math.floor(100/row.columns.length)}`);
+          const w = parseFloat(col.style?.width || `${100/row.columns.length}`);
           const l = left; left += w;
           const isSelected = col.id === selectedColId;
           return (
             <div key={col.id} style={{ position:"absolute", top:0, bottom:0, left:l+"%", width:w+"%", background:colors[ci%colors.length], display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:700, color:"#fff", borderRadius: ci===0?"6px 0 0 6px": ci===row.columns.length-1?"0 6px 6px 0":"0", overflow:"hidden", outline: isSelected?"2px solid #111827":"none", outlineOffset:-2, zIndex: isSelected?1:0 }}>
-              {Math.round(w)}%
+              {+w.toFixed(1)}%
               {ci < row.columns.length-1 && (
                 <div onMouseDown={e=>{e.stopPropagation();startColDrag(e,ci,row);}}
                   style={{ position:"absolute", right:-5, top:-4, bottom:-4, width:10, cursor:"col-resize", display:"flex", alignItems:"center", justifyContent:"center", zIndex:20 }}>
@@ -5554,6 +5559,12 @@ function ColumnWidthBar({ row, startColDrag, selectedColId }) {
           <div key={col.id} style={{ flex:1, textAlign:"center", fontWeight: col.id===selectedColId?700:400, color: col.id===selectedColId?"#111827":"#6b7280" }}>Col {ci+1}</div>
         ))}
       </div>
+      {onEqualize && (
+        <button onClick={onEqualize}
+          style={{ marginTop:8, width:"100%", padding:"6px 0", fontSize:14, fontWeight:600, borderRadius:6, cursor:"pointer", border:"1px solid #e5e7eb", background:"#f9fafb", color:"#374151", fontFamily:"inherit" }}>
+          Make columns equal
+        </button>
+      )}
     </div>
   );
 }
@@ -7341,7 +7352,7 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
   // -- Column resize ------------------------------------------------------
   function startColDrag(e, colIdx, row) {
     e.preventDefault(); e.stopPropagation();
-    const ws = row.columns.map(c => parseFloat(c.style?.width || `${Math.floor(100/row.columns.length)}`));
+    const ws = row.columns.map(c => parseFloat(c.style?.width || `${100/row.columns.length}`));
     setDraggingColIdx(colIdx); setDragStartX(e.clientX); setDragStartWidths(ws);
   }
 
@@ -7363,8 +7374,8 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
     // two separate onUpdateRowStyle calls here caused col 1 to freeze at its original
     // width while col 2 grew without bound.
     onUpdateColWidths(row.id, {
-      [row.columns[leftIdx].id]: Math.round(newLeft) + "%",
-      [row.columns[rightIdx].id]: Math.round(newRight) + "%",
+      [row.columns[leftIdx].id]: (Math.round(newLeft*10)/10) + "%",
+      [row.columns[rightIdx].id]: (Math.round((totalLR-Math.round(newLeft*10)/10)*10)/10) + "%",
     });
   }
 
@@ -7981,7 +7992,7 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
                     // by default, or whatever was set manually) -- never from
                     // its contents. Photos/images scale down to fit instead.
                     const nColsC = row.columns.length;
-                    const colW = col.style?.width || (ci === nColsC-1 ? `${100 - Math.floor(100/nColsC)*(nColsC-1)}%` : `${Math.floor(100/nColsC)}%`);
+                    const colW = col.style?.width || equalColPct(nColsC);
                     const isSelCol = selectedColId === col.id;
                     const gutter = row.style?.columnGap || "10px";
                     return (
@@ -8814,7 +8825,7 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
         ) : selectedColId && selectedRow ? (
           /* -- Column Properties -- */
           <div>
-            <ColumnWidthBar row={selectedRow} startColDrag={startColDrag} selectedColId={selectedColId} />
+            <ColumnWidthBar row={selectedRow} startColDrag={startColDrag} selectedColId={selectedColId} onEqualize={()=>{ const m={}; selectedRow.columns.forEach(c=>{ m[c.id]=equalColPct(selectedRow.columns.length); }); onUpdateColWidths(selectedRow.id, m); }} />
             <ColPropertiesPanel
               key={selectedColId}
               col={selectedRow.columns.find(c=>c.id===selectedColId)}
@@ -8833,7 +8844,7 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
             </div>
 
             {/* Column width drag bar */}
-            <ColumnWidthBar row={selectedRow} startColDrag={startColDrag} selectedColId={selectedColId} />
+            <ColumnWidthBar row={selectedRow} startColDrag={startColDrag} selectedColId={selectedColId} onEqualize={()=>{ const m={}; selectedRow.columns.forEach(c=>{ m[c.id]=equalColPct(selectedRow.columns.length); }); onUpdateColWidths(selectedRow.id, m); }} />
 
             {/* Row background color */}
             <div style={{ marginBottom:10 }}>
