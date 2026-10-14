@@ -2890,47 +2890,15 @@ function PublicSharePreview({ shortId }) {
         setSaving(false);
         return;
       }
-      const name = sig.name ? sig.name + " (shared)" : "Shared Signature";
-      const newId = "sig-" + Math.random().toString(36).slice(2);
-      // Freezes the shared profile's values into THIS COPY's own
-      // manualOverrides (same mechanism the Autofill-off toggle already
-      // uses), with autofillEnabled explicitly set to false. Without this,
-      // "imported" only carried the design's layout (sig) -- Smart Fields
-      // in it are profile-driven by nature, so the instant this copy got
-      // opened normally in the recipient's own account, they'd silently
-      // render from THAT account's own profile instead of staying frozen
-      // to whatever was actually shown in the preview. That's what made it
-      // look like the design "reverted" to someone else's info: it wasn't
-      // reverting, Smart Fields were just doing exactly what Smart Fields
-      // do once nothing is anchoring them to the original person's data
-      // anymore. The recipient can still flip Autofill back on later if
-      // they'd rather this design start reflecting their own profile.
-      const imported = { ...sig, id: newId, name, autofillEnabled: false, manualOverrides: { ...sharedProfile }, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
-      const importedBytes = approxDocBytes(imported);
-      if (importedBytes > 1000000) {
-        setSaveError(`This design is too large to copy (${(importedBytes/1048576).toFixed(1)} MB; the limit is 1 MB) because of the images in it. Ask the sender to use smaller or fewer images and send a new link.`);
-        setSaving(false);
-        return;
-      }
-      await withTimeout(setDoc(doc(collection(db, "users", user.uid, "signatures"), newId), imported), 30000, "Saving your copy");
-      // Redirects into the actual editor with this copy already open,
-      // instead of leaving the person on this static preview page with just
-      // a "saved!" message and no way to get to it from here. Reloading
-      // through a real navigation (not just swapping local state) also
-      // means this always starts from a clean, freshly-authenticated App()
-      // render rather than continuing to run inside whatever state this
-      // preview page happened to be in -- App() picks up the #open= hash
-      // once it finishes loading this account's signatures and opens the
-      // matching one directly.
-      // Setting .href/.hash to a URL that only differs by its fragment does
-      // NOT trigger an actual page reload in browsers -- it's treated as an
-      // in-page navigation, so the already-mounted PublicSharePreview just
-      // kept rendering exactly what it had on screen, with nothing telling
-      // React the hash had changed underneath it (React has no built-in
-      // reactivity to window.location -- only state/prop changes cause a
-      // re-render). The explicit reload() below is what forces App() to
-      // actually re-mount fresh and re-evaluate the new hash.
-      window.location.hash = "open=" + newId;
+      // The copy is no longer written to the account from this page. That
+      // write has to be acknowledged by the server before anything else can
+      // happen, and on slow or restricted networks it could sit "saving"
+      // forever with nothing to show for it. Instead, sign-in is verified
+      // here and the person is sent straight into the editor with the shared
+      // design (#import=<id>), where it opens immediately from what's
+      // already loaded and saves to their account in the background like
+      // any other design (see the #import= effect in App).
+      window.location.hash = "import=" + shortId;
       window.location.reload();
     } catch (e) {
       console.warn("Could not save shared signature:", e);
@@ -3800,6 +3768,49 @@ export default function App() {
   // for accountLoading to finish since `signatures` isn't populated yet
   // before that, and only runs once per hash value (openedShareCopyRef)
   // so it doesn't re-trigger on every later re-render.
+  // Opens a shared design (#import=<shareId>, set by "Make a Copy" on the
+  // public share page) as a new signature in this account. It appears and
+  // opens in the editor right away from the shared document; saving it to
+  // the account happens in the background, and a slow save never blocks it.
+  const importedShareRef = useRef(null);
+  useEffect(() => {
+    if (accountLoading) return;
+    const hash = window.location.hash;
+    if (!hash.startsWith("#import=")) return;
+    const shareId = hash.slice(8);
+    if (!shareId || importedShareRef.current === shareId) return;
+    importedShareRef.current = shareId;
+    (async () => {
+      try {
+        const snap = await withTimeout(getDoc(doc(db, "shared", shareId)), 20000, "Loading the shared design");
+        if (!snap.exists()) { showToast("That share link is no longer valid."); return; }
+        const data = snap.data();
+        const shared = data && data.rows ? data : (data.sig || null);
+        const sharedProfile = data && data.rows ? DEFAULT_PROFILE : (data.profile || DEFAULT_PROFILE);
+        if (!shared || !shared.rows) { showToast("That share link is no longer valid."); return; }
+        const now = new Date().toISOString();
+        const imported = {
+          ...shared,
+          id: "sig-" + Math.random().toString(36).slice(2),
+          name: shared.name ? shared.name + " (shared)" : "Shared Signature",
+          // Frozen to the shared person's details, not this account's profile.
+          autofillEnabled: false,
+          manualOverrides: { ...sharedProfile },
+          createdAt: now, updatedAt: now,
+        };
+        window.history.replaceState(null, "", window.location.pathname);
+        const writePromise = saveSigs([imported, ...signatures]);
+        openEditor(imported);
+        showToast("Saved to your account -- here's your copy.");
+        withTimeout(writePromise, 30000, "Syncing").catch(() => showToast("Your copy is open. Syncing to your account is slow, so keep this tab open until it finishes."));
+      } catch (e) {
+        console.warn("Could not import shared design:", e);
+        showToast("Couldn't load that shared design. Check your connection and try the link again.");
+      }
+    })();
+    // eslint-disable-next-line
+  }, [accountLoading]);
+
   const openedShareCopyRef = useRef(null);
   useEffect(() => {
     if (accountLoading) return;
