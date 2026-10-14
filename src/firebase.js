@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { initializeFirestore } from "firebase/firestore";
 
 // All values come from Vercel/local environment variables -- never hardcode
 // these directly in source, even though Firebase web config isn't a secret
@@ -19,4 +19,11 @@ const firebaseConfig = {
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
-export const db = getFirestore(app);
+// Auto-detects networks (corporate VPNs/proxies, some office Wi-Fi) that
+// block Firestore's default streaming connection and silently switches to
+// long-polling instead. Without this, writes on those networks can sit
+// "pending" forever -- no error, no save -- which is exactly how a Share
+// Link or "Make a Copy" looks when it spins and never finishes.
+export const db = initializeFirestore(app, {
+  experimentalAutoDetectLongPolling: true,
+});

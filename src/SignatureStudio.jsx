@@ -151,6 +151,21 @@ function escapeHtml(str) {
 // everything down to plain text plus ONLY <a href="..."> tags rebuilt with
 // our own minimal, known-safe attributes -- nothing pasted-in ever survives
 // as executable markup or unexpected formatting.
+// Rejects if a promise takes longer than `ms`, so a stalled network write
+// shows a real error instead of an endless "Saving..." spinner.
+function withTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(Object.assign(new Error((label || "Request") + " timed out"), { code: "timeout" })), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+// Approximate size in bytes of a Firestore document (UTF-8 JSON length).
+function approxDocBytes(obj) {
+  try { return new Blob([JSON.stringify(obj)]).size; } catch (e) { return 0; }
+}
+
 function sanitizeInlineLinkHtml(html) {
   if (!html) return "";
   const tmp = document.createElement("div");
@@ -2858,7 +2873,13 @@ function PublicSharePreview({ shortId }) {
       // anymore. The recipient can still flip Autofill back on later if
       // they'd rather this design start reflecting their own profile.
       const imported = { ...sig, id: newId, name, autofillEnabled: false, manualOverrides: { ...sharedProfile }, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
-      await setDoc(doc(collection(db, "users", user.uid, "signatures"), newId), imported);
+      const importedBytes = approxDocBytes(imported);
+      if (importedBytes > 1000000) {
+        setSaveError(`This design is too large to copy (${(importedBytes/1048576).toFixed(1)} MB; the limit is 1 MB) because of the images in it. Ask the sender to use smaller or fewer images and send a new link.`);
+        setSaving(false);
+        return;
+      }
+      await withTimeout(setDoc(doc(collection(db, "users", user.uid, "signatures"), newId), imported), 30000, "Saving your copy");
       // Redirects into the actual editor with this copy already open,
       // instead of leaving the person on this static preview page with just
       // a "saved!" message and no way to get to it from here. Reloading
@@ -2880,7 +2901,11 @@ function PublicSharePreview({ shortId }) {
       window.location.reload();
     } catch (e) {
       console.warn("Could not save shared signature:", e);
-      setSaveError(e?.code === "auth/popup-closed-by-user" ? "" : "Something went wrong saving this -- please try again.");
+      setSaveError(
+        e?.code === "auth/popup-closed-by-user" ? ""
+        : e?.code === "timeout" ? "Saving is taking too long -- this is usually a slow or restricted network connection. Check your connection (or try off VPN) and try again."
+        : e?.code === "permission-denied" ? "Your account isn't allowed to save here. Make sure you're signed in with your @compass.com account."
+        : "Couldn't save this copy (" + (e?.code || e?.message || "unknown error") + "). Please try again.");
     }
     setSaving(false);
   }
@@ -3796,7 +3821,19 @@ export default function App() {
       // literally the wrong data source from the start. That's what made
       // fields look scrambled/reverted on the recipient's end even though
       // the original always looked correct to whoever built it.
-      await setDoc(doc(db, "shared", shortId), { sig, profile: effectiveProfile, createdAt: new Date().toISOString() });
+      // Drop empty profile fields so they don't take up space, then check
+      // the real size BEFORE writing -- an oversized document (usually from
+      // embedded photos/logos/badges) was the main reason links were slow
+      // or never finished.
+      const slimProfile = {};
+      Object.keys(effectiveProfile || {}).forEach(k => { const v = effectiveProfile[k]; if (v !== "" && v != null) slimProfile[k] = v; });
+      const payload = { sig, profile: slimProfile, createdAt: new Date().toISOString() };
+      const bytes = approxDocBytes(payload);
+      console.log("[share] document size:", (bytes/1024).toFixed(0) + " KB");
+      if (bytes > 1000000) {
+        return { error: `This design is too large to share as a link (${(bytes/1048576).toFixed(1)} MB; the limit is 1 MB) because of the images in it. Try removing or shrinking a banner, badge, or large photo and try again.` };
+      }
+      await withTimeout(setDoc(doc(db, "shared", shortId), payload), 30000, "Creating the link");
       return window.location.origin + window.location.pathname + "#s=" + shortId;
     } catch(e) {
       console.warn("Could not create share link:", e);
@@ -3811,6 +3848,7 @@ export default function App() {
       if (e?.code === "resource-exhausted" || /longer than|exceeds the maximum|1048487|invalid-argument/i.test(msg)) {
         return { error: "This design has too many/too-large images to share as a link. Try removing a banner, badge, or GIF and generating the link again." };
       }
+      if (e?.code === "timeout") return { error: "Creating the link is taking too long -- this is usually a slow or restricted network connection. Check your connection (or try off VPN) and try again." };
       return null;
     }
   }
@@ -3823,7 +3861,9 @@ export default function App() {
     // what made a shared design look like it had "reverted": the design
     // wasn't actually reverted, the share link had just captured a moment
     // slightly before the latest styling change was saved.
-    await saveCurrent(true);
+    // Capped at 8s: if the account save is slow, don't make the link wait on
+    // it forever (the link itself is built from the signature passed in).
+    try { await withTimeout(saveCurrent(true), 8000, "Saving"); } catch (e) { console.warn("Pre-share save skipped:", e && e.message); }
     const result = await generateShareLink(sig);
     const url = typeof result === "string" ? result : null;
     if (!url) {
