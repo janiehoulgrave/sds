@@ -161,6 +161,39 @@ function withTimeout(promise, ms, label) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
+// Moves large embedded (base64) images out of a document and into R2 file
+// storage, replacing each with a short public URL. A signature with several
+// photos/badges/banners embedded directly can be hundreds of KB to ~1 MB,
+// which is slow to write (and on restricted networks can stall entirely).
+// Any image that fails to upload is simply left embedded, so this can only
+// ever make the document smaller, never lose an image.
+async function externalizeLargeImages(value, auth, minChars) {
+  const limit = minChars || 40000;
+  const found = new Map(); // dataUrl -> publicUrl (filled below)
+  (function collect(v) {
+    if (typeof v === "string") { if (v.startsWith("data:image/") && v.length > limit) found.set(v, null); }
+    else if (Array.isArray(v)) v.forEach(collect);
+    else if (v && typeof v === "object") Object.values(v).forEach(collect);
+  })(value);
+  if (!found.size) return value;
+  await Promise.all([...found.keys()].map(async (dataUrl) => {
+    try {
+      const type = (dataUrl.match(/^data:([^;,]+)/) || [])[1] || "image/jpeg";
+      const ext = type.split("/")[1].replace("jpeg","jpg").replace("svg+xml","svg");
+      const blob = await (await fetch(dataUrl)).blob();
+      const file = new File([blob], "share-" + Math.random().toString(36).slice(2) + "." + ext, { type });
+      const url = await withTimeout(uploadUserAssetToR2(file, auth), 25000, "Image upload");
+      found.set(dataUrl, url);
+    } catch (e) { console.warn("[share] image left embedded:", e && e.message); }
+  }));
+  return (function swap(v) {
+    if (typeof v === "string") return found.get(v) || v;
+    if (Array.isArray(v)) return v.map(swap);
+    if (v && typeof v === "object") { const o = {}; Object.keys(v).forEach(k => { o[k] = swap(v[k]); }); return o; }
+    return v;
+  })(value);
+}
+
 // Approximate size in bytes of a Firestore document (UTF-8 JSON length).
 function approxDocBytes(obj) {
   try { return new Blob([JSON.stringify(obj)]).size; } catch (e) { return 0; }
@@ -2903,7 +2936,7 @@ function PublicSharePreview({ shortId }) {
       console.warn("Could not save shared signature:", e);
       setSaveError(
         e?.code === "auth/popup-closed-by-user" ? ""
-        : e?.code === "timeout" ? "Saving is taking too long -- this is usually a slow or restricted network connection. Check your connection (or try off VPN) and try again."
+        : e?.code === "timeout" ? "Saving is taking too long (design size: " + Math.round(approxDocBytes(sig)/1024) + " KB) -- this is usually a slow or restricted network connection, or a large design from an older link. Ask the sender for a fresh link, check your connection (or try off VPN), and try again."
         : e?.code === "permission-denied" ? "Your account isn't allowed to save here. Make sure you're signed in with your @compass.com account."
         : "Couldn't save this copy (" + (e?.code || e?.message || "unknown error") + "). Please try again.");
     }
@@ -3827,7 +3860,10 @@ export default function App() {
       // or never finished.
       const slimProfile = {};
       Object.keys(effectiveProfile || {}).forEach(k => { const v = effectiveProfile[k]; if (v !== "" && v != null) slimProfile[k] = v; });
-      const payload = { sig, profile: slimProfile, createdAt: new Date().toISOString() };
+      let payload = { sig, profile: slimProfile, createdAt: new Date().toISOString() };
+      // Move big embedded images into file storage first so the shared
+      // document itself stays small and quick to write and open.
+      payload = await externalizeLargeImages(payload, auth);
       const bytes = approxDocBytes(payload);
       console.log("[share] document size:", (bytes/1024).toFixed(0) + " KB");
       if (bytes > 1000000) {
@@ -3861,6 +3897,7 @@ export default function App() {
     // what made a shared design look like it had "reverted": the design
     // wasn't actually reverted, the share link had just captured a moment
     // slightly before the latest styling change was saved.
+    showToast("Creating share link...");
     // Capped at 8s: if the account save is slow, don't make the link wait on
     // it forever (the link itself is built from the signature passed in).
     try { await withTimeout(saveCurrent(true), 8000, "Saving"); } catch (e) { console.warn("Pre-share save skipped:", e && e.message); }
@@ -6210,6 +6247,7 @@ function cropImageToRatio(src, targetW, targetH) {
   return new Promise((resolve) => {
     if (!src || !targetW || !targetH) { resolve(src); return; }
     const img = new Image();
+    if (/^https?:/i.test(src)) img.crossOrigin = "anonymous";
     img.onload = () => {
       try {
         const targetRatio = targetW / targetH;
