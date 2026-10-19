@@ -2664,7 +2664,7 @@ function generateSigHTML(sig, profile) {
       // doesn't show.
       rs.backgroundImage ? `background-image:url('${rs.backgroundImage}');background-size:${rs.backgroundSize==="repeat"?"auto":(rs.backgroundSize||"cover")};background-repeat:${rs.backgroundSize==="repeat"?"repeat":"no-repeat"};background-position:center;` : "",
     ].filter(Boolean).join(";");
-    html += `<tr><td style="${rStyle};padding:${rs.paddingTop||"0px"} 0 ${rs.paddingBottom||"0px"} 0;"><table cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;table-layout:fixed;"><tr>`;
+    html += `<tr><td style="${rStyle};padding:${rs.paddingTop||"0px"} ${rs.paddingRight||"0px"} ${rs.paddingBottom||"0px"} ${rs.paddingLeft||"0px"};"><table cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;table-layout:fixed;"><tr>`;
     row.columns.forEach((col, ci) => {
       const cs = col.style || {};
       // Column widths come ONLY from the column itself (equal by default,
@@ -2685,7 +2685,8 @@ function generateSigHTML(sig, profile) {
       const gutterR = ci < nCols-1 ? halfGap : 0;
       const gutterPx = gutterL + gutterR;
       const wNumCol = parseFloat(w) || 0;
-      const colOuterPx = /%$/.test(String(w)) ? 560 * wNumCol / 100 : wNumCol;
+      const rowInnerPx = Math.max(100, 560 - (parseInt(rs.paddingLeft)||0) - (parseInt(rs.paddingRight)||0));
+      const colOuterPx = /%$/.test(String(w)) ? rowInnerPx * wNumCol / 100 : wNumCol;
       const colMaxPx = colOuterPx ? Math.max(20, colOuterPx - padL - padR - gutterPx) : null;
       const cStyle = [
         `vertical-align:${cs.verticalAlign||"top"}`,
@@ -8086,6 +8087,8 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
                 // top/bottom to remove that default gap.
                 paddingTop: (row.style?.paddingTop ?? "0px"),
                 paddingBottom: (row.style?.paddingBottom ?? "0px"),
+                paddingLeft: row.style?.paddingLeft || 0,
+                paddingRight: row.style?.paddingRight || 0,
                 // Row's own background color takes priority; the selection tint only
                 // applies when there's no custom color set, so a chosen background
                 // now actually shows on the live canvas instead of only in exported
@@ -9017,6 +9020,13 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
             </div>
             <div style={{ marginBottom:10 }}><span style={propLabel}>Padding Top</span><DimensionInput style={inputStyle} value={selectedRow.style?.paddingTop||"8px"} onChange={v=>onUpdateRowStyle(selectedRow.id,"paddingTop",v)}/></div>
             <div style={{ marginBottom:10 }}><span style={propLabel}>Padding Bottom</span><DimensionInput style={inputStyle} value={selectedRow.style?.paddingBottom||"8px"} onChange={v=>onUpdateRowStyle(selectedRow.id,"paddingBottom",v)}/></div>
+            {/* Whole-row left/right padding: insets every column in the row
+                together, so columns stay evenly spaced without padding each
+                element on its own. */}
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:10 }}>
+              <div><span style={propLabel}>Padding Left</span><DimensionInput style={inputStyle} placeholder="0px" value={selectedRow.style?.paddingLeft||""} onChange={v=>onUpdateRowStyle(selectedRow.id,"paddingLeft",v)}/></div>
+              <div><span style={propLabel}>Padding Right</span><DimensionInput style={inputStyle} placeholder="0px" value={selectedRow.style?.paddingRight||""} onChange={v=>onUpdateRowStyle(selectedRow.id,"paddingRight",v)}/></div>
+            </div>
             <div style={{ marginBottom:10 }}><span style={propLabel}>Column Gap</span><DimensionInput style={inputStyle} placeholder="10px" value={selectedRow.style?.columnGap||"10px"} onChange={v=>onUpdateRowStyle(selectedRow.id,"columnGap",v)}/></div>
             <SideBorderSection label="Row Border" s={selectedRow.style||{}} propLabel={propLabel} inputStyle={inputStyle}
               widthKey="borderBottomWidth" colorKey="borderBottomColor"
