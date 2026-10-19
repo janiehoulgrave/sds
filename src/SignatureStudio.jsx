@@ -2282,14 +2282,19 @@ function renderElementInner(el, profile, forCanvas, colMaxPx) {
     }
     const imgBox = `box-sizing:border-box;${br}${bdr}${bg}`;
     if (bothPx) {
+      // Export: subtract the border from the image's own size (see the
+      // headshot note) so it fits the fixed wrapper even if Gmail drops
+      // box-sizing and the border would otherwise push it past the edge.
+      const bwI = (!forCanvas && s.borderWidth) ? (parseFloat(s.borderWidth) || 0) : 0;
+      const innerWI = Math.max(1, wNum - 2*bwI), innerHI = Math.max(1, hNum - 2*bwI);
       const sizing = forCanvas
         ? `width:100%;height:auto;aspect-ratio:${wNum}/${hNum};`
-        : `width:100%;height:${imgH};`;
+        : `width:${innerWI}px;height:${innerHI}px;`;
       // Export: hard pixel box + overflow hidden on the wrapper so the image
       // stays clipped to its intended size even if Gmail strips the <img>'s
       // own sizing on forward (same protection headshots have).
       const wrap = forCanvas ? `width:${imgW};max-width:100%;` : `width:${imgW};height:${imgH};overflow:hidden;`;
-      return `<div style="margin:0;line-height:0;font-size:0;${wrap}"><img src="${src}" width="${wNum}" height="${hNum}" style="${sizing}${imgBox}object-fit:${s.objectFit||"cover"};display:block;" /></div>`;
+      return `<div style="margin:0;line-height:0;font-size:0;${wrap}"><img src="${src}" width="${forCanvas ? wNum : Math.max(1, wNum - 2*bwI)}" height="${forCanvas ? hNum : Math.max(1, hNum - 2*bwI)}" style="${sizing}${imgBox}object-fit:${s.objectFit||"cover"};display:block;" /></div>`;
     }
     // The container matches the image's own intended width instead of always
     // being 100% -- otherwise shrinking Width only resized the <img> itself
@@ -2429,9 +2434,19 @@ function renderElementInner(el, profile, forCanvas, colMaxPx) {
         // fixed width+height, which is what every email client (Gmail, Outlook,
         // Apple Mail) reliably honors -- email signatures are a fixed-width
         // context by nature, so there's no responsive benefit there anyway.
+        // EXPORT: the border is subtracted from the <img>'s own width/height
+        // instead of relying on box-sizing:border-box. Gmail's paste/forward
+        // handling can drop box-sizing, and then the border is added ON TOP
+        // of the image size, making the image bigger than its fixed-size,
+        // overflow:hidden wrapper below -- which is what sliced the right and
+        // bottom edges off the circles. Sizing the image to (box - border)
+        // makes it fit the wrapper exactly whether or not box-sizing survives.
+        const bwN = (!forCanvas && s.borderWidth) ? (parseFloat(s.borderWidth) || 0) : 0;
+        const imgWn = Math.max(1, wNum - 2*bwN);
+        const imgHn = Math.max(1, hNum - 2*bwN);
         const photoResponsiveStyle = forCanvas
           ? `max-width:100%;height:auto;aspect-ratio:${wNum}/${hNum};`
-          : `height:${h};`;
+          : `height:${imgHn}px;`;
         // The wrapping <div> now also carries a hard pixel width/height plus
         // overflow:hidden, for the EXPORT path only -- discovered this is
         // necessary after finding that Gmail's FORWARD action (a different,
@@ -2447,7 +2462,7 @@ function renderElementInner(el, profile, forCanvas, colMaxPx) {
         // attributes, so a hard size + overflow:hidden here gives the image
         // somewhere to get physically clipped even after Gmail guts it.
         const containerStyle = forCanvas ? "" : `width:${w};height:${h};overflow:hidden;`;
-        return `<div style="display:block;line-height:0;font-size:0;${containerStyle}mso-margin-top-alt:0;mso-margin-bottom-alt:0;"><img src="${src}" width="${wNum}" height="${hNum}" style="width:${w};${photoResponsiveStyle}box-sizing:border-box;border-radius:${br};${bdr}object-fit:${s.objectFit||"cover"};display:block;" referrerpolicy="no-referrer" /></div>`;
+        return `<div style="display:block;line-height:0;font-size:0;${containerStyle}mso-margin-top-alt:0;mso-margin-bottom-alt:0;"><img src="${src}" width="${forCanvas ? wNum : imgWn}" height="${forCanvas ? hNum : imgHn}" style="width:${forCanvas ? w : imgWn + "px"};${photoResponsiveStyle}box-sizing:border-box;border-radius:${br};${bdr}object-fit:${s.objectFit||"cover"};display:block;" referrerpolicy="no-referrer" /></div>`;
       }
       case "logo": {
         const src = s.croppedSrc || profile.logoUrl || "";
