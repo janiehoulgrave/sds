@@ -5409,6 +5409,7 @@ function ExportDropdown({ onCopyRich, copiedRich, onCopyHtml, copiedHtml, onShar
     return () => document.removeEventListener("mousedown", handler);
   }, []);
   return (
+    <div style={{ display:"flex", alignItems:"center", gap:8 }}>
     <div ref={ref} style={{ position:"relative" }}>
       <div style={{ display:"flex", borderRadius:6, overflow:"hidden", border:"none" }}>
         <button onClick={onCopyRich}
@@ -5437,16 +5438,18 @@ function ExportDropdown({ onCopyRich, copiedRich, onCopyHtml, copiedHtml, onShar
             <Icon name="code" size={16} color="#374151" />
             <div><div style={{ fontWeight:600 }}>Copy HTML</div><div style={{ fontSize:15, color:"#6b7280" }}>For developers or custom email tools</div></div>
           </button>
-          <div style={{ borderTop:"1px solid #f3f4f6" }} />
-          <button onClick={()=>{ onShare(); setOpen(false); }}
-            style={{ width:"100%", padding:"10px 14px", border:"none", background:"transparent", cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center", gap:10, fontSize:15, color:"#111827", textAlign:"left" }}
-            onMouseEnter={e=>e.currentTarget.style.background="#f3f4f6"}
-            onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-            <Icon name="share" size={16} color="#374151" />
-            <div><div style={{ fontWeight:600 }}>Share Link</div><div style={{ fontSize:15, color:"#6b7280" }}>Anyone with the link can import a copy</div></div>
-          </button>
         </div>
       )}
+    </div>
+      {/* Share Link used to live only in the dropdown above, where people
+          making signatures for someone else missed it and pasted the copied
+          signature into Gmail instead (which mangles the formatting). Its own
+          button makes it obvious. */}
+      <button onClick={onShare} title="Anyone with the link can import a copy"
+        style={{ background:"#fff", border:"1px solid #0051d5", borderRadius:6, padding:"5px 12px", fontSize:14, fontWeight:700, cursor:"pointer", color:"#0051d5", fontFamily:"inherit", display:"flex", alignItems:"center", gap:5 }}>
+        <Icon name="share" size={15} color="#0051d5" />
+        Share Link
+      </button>
     </div>
   );
 }
