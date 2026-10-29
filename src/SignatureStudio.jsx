@@ -5409,15 +5409,16 @@ function ExportDropdown({ onCopyRich, copiedRich, onCopyHtml, copiedHtml, onShar
     return () => document.removeEventListener("mousedown", handler);
   }, []);
   return (
+    <div style={{ display:"flex", alignItems:"center", gap:8 }}>
     <div ref={ref} style={{ position:"relative" }}>
       <div style={{ display:"flex", borderRadius:6, overflow:"hidden", border:"none" }}>
         <button onClick={onCopyRich}
-          style={{ background:"#0051d5", border:"none", padding:"6px 14px", fontSize:14, fontWeight:700, cursor:"pointer", color:copiedRich?"#a5f3fc":"#fff", fontFamily:"inherit", display:"flex", alignItems:"center", gap:5 }}>
+          style={{ background:"#0051d5", border:"none", height:34, boxSizing:"border-box", padding:"0 14px", fontSize:14, fontWeight:700, cursor:"pointer", color:copiedRich?"#a5f3fc":"#fff", fontFamily:"inherit", display:"flex", alignItems:"center", gap:5 }}>
           <Icon name="content_paste" size={15} color="#fff" />
           {copiedRich ? "Copied!" : "Copy to Clipboard"}
         </button>
         <button onClick={()=>setOpen(o=>!o)}
-          style={{ background:"#0041b5", border:"none", borderLeft:"1px solid rgba(255,255,255,0.2)", padding:"6px 8px", cursor:"pointer", display:"flex", alignItems:"center" }}>
+          style={{ background:"#0041b5", border:"none", borderLeft:"1px solid rgba(255,255,255,0.2)", height:34, boxSizing:"border-box", padding:"0 8px", cursor:"pointer", display:"flex", alignItems:"center" }}>
           <Icon name="expand_more" size={16} color="#fff" />
         </button>
       </div>
@@ -5437,16 +5438,18 @@ function ExportDropdown({ onCopyRich, copiedRich, onCopyHtml, copiedHtml, onShar
             <Icon name="code" size={16} color="#374151" />
             <div><div style={{ fontWeight:600 }}>Copy HTML</div><div style={{ fontSize:15, color:"#6b7280" }}>For developers or custom email tools</div></div>
           </button>
-          <div style={{ borderTop:"1px solid #f3f4f6" }} />
-          <button onClick={()=>{ onShare(); setOpen(false); }}
-            style={{ width:"100%", padding:"10px 14px", border:"none", background:"transparent", cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center", gap:10, fontSize:15, color:"#111827", textAlign:"left" }}
-            onMouseEnter={e=>e.currentTarget.style.background="#f3f4f6"}
-            onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-            <Icon name="share" size={16} color="#374151" />
-            <div><div style={{ fontWeight:600 }}>Share Link</div><div style={{ fontSize:15, color:"#6b7280" }}>Anyone with the link can import a copy</div></div>
-          </button>
         </div>
       )}
+    </div>
+      {/* Share Link used to live only in the dropdown above, where people
+          making signatures for someone else missed it and pasted the copied
+          signature into Gmail instead (which mangles the formatting). Its own
+          button makes it obvious. */}
+      <button onClick={onShare} title="Anyone with the link can import a copy"
+        style={{ background:"#fff", border:"1px solid #0051d5", borderRadius:6, height:34, boxSizing:"border-box", padding:"0 12px", fontSize:14, fontWeight:700, cursor:"pointer", color:"#0051d5", fontFamily:"inherit", display:"flex", alignItems:"center", gap:5 }}>
+        <Icon name="share" size={15} color="#0051d5" />
+        Share Link
+      </button>
     </div>
   );
 }
@@ -7859,7 +7862,7 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
                 real name/photo/contact info into a design without it
                 silently overwriting their own profile in Firestore. */}
             <button onClick={onToggleAutofill} title={autofillEnabled ? "Turn off to manually type this agent's details without changing your own profile" : "Turn on to autofill from your own profile again"}
-              style={{ display:"flex", alignItems:"center", gap:7, background: autofillEnabled ? "#f9fafb" : "#fef3c7", border: autofillEnabled ? "1px solid #d1d5db" : "1px solid #fbbf24", borderRadius:6, padding:"5px 10px", cursor:"pointer", fontFamily:"inherit", marginRight:2 }}>
+              style={{ display:"flex", alignItems:"center", gap:7, background: autofillEnabled ? "#f9fafb" : "#fef3c7", border: autofillEnabled ? "1px solid #d1d5db" : "1px solid #fbbf24", borderRadius:6, height:34, boxSizing:"border-box", padding:"0 12px", cursor:"pointer", fontFamily:"inherit", marginRight:2 }}>
               <div style={{ position:"relative", width:28, height:16, borderRadius:8, background: autofillEnabled ? "#0051d5" : "#d1d5db", transition:"background 0.15s", flexShrink:0 }}>
                 <div style={{ position:"absolute", top:2, left: autofillEnabled ? 14 : 2, width:12, height:12, borderRadius:"50%", background:"#fff", transition:"left 0.15s" }} />
               </div>
@@ -7872,11 +7875,11 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
             )}
             {adminMode && (
               <button onClick={onOpenTemplateSaveModal} title={isEditingTemplate ? "Update this template for all agents" : "Save this signature as a reusable template"}
-                style={{ background:"#fef3c7", border:"1px solid #fbbf24", borderRadius:6, padding:"5px 12px", fontSize:15, fontWeight:700, cursor:"pointer", color:"#92400e", display:"flex", alignItems:"center", gap:5, fontFamily:"inherit" }}>
+                style={{ background:"#fef3c7", border:"1px solid #fbbf24", borderRadius:6, height:34, boxSizing:"border-box", padding:"0 12px", fontSize:14, fontWeight:700, cursor:"pointer", color:"#92400e", display:"flex", alignItems:"center", gap:5, fontFamily:"inherit" }}>
                 <Icon name="shield_person" size={15} /> {isEditingTemplate ? "Update Template" : "Save as Template"}
               </button>
             )}
-            <button onClick={onSave} title="Save" style={{ background:"#f9fafb", border:"1px solid #d1d5db", borderRadius:6, padding:"5px 12px", fontSize:15, fontWeight:700, cursor:"pointer", color:"#374151", display:"flex", alignItems:"center", gap:5, fontFamily:"inherit" }}>
+            <button onClick={onSave} title="Save" style={{ background:"#f9fafb", border:"1px solid #d1d5db", borderRadius:6, height:34, boxSizing:"border-box", padding:"0 12px", fontSize:14, fontWeight:700, cursor:"pointer", color:"#374151", display:"flex", alignItems:"center", gap:5, fontFamily:"inherit" }}>
               <Icon name="save" size={15} /> Save
             </button>
             <ExportDropdown
