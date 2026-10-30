@@ -5877,6 +5877,11 @@ function CropModal({ imageSrc, aspectW, aspectH, shapeRadius, initialZoom, initi
   const [imgLoaded, setImgLoaded] = useState(false);
   const dragState = useRef(null);
   const imgRef = useRef(null);
+  // Hosted (R2) images must be loaded with CORS or the canvas below is
+  // "tainted" and can't export the crop. If the CORS load fails, retry plain
+  // so the image at least shows; handleSave then reports the problem.
+  const [corsFailed, setCorsFailed] = useState(false);
+  const wantCors = /^https?:/i.test(imageSrc || "") && !corsFailed;
   // Fit the crop viewport within a sane bounding box while preserving the
   // target element's real aspect ratio -- previously this just did
   // VIEWPORT_W * (aspectH/aspectW) with a fixed 320px width, which for a very
@@ -5945,7 +5950,10 @@ function CropModal({ imageSrc, aspectW, aspectH, shapeRadius, initialZoom, initi
     // Canvas naturally clips anything drawn outside its bounds, so we can just
     // draw the whole scaled/positioned image and let the canvas do the cropping.
     ctx.drawImage(imgRef.current, r.x*OUT_SCALE, r.y*OUT_SCALE, r.w*OUT_SCALE, r.h*OUT_SCALE);
-    onSave(canvas.toDataURL("image/png"), { zoom, offsetX: offset.x, offsetY: offset.y });
+    let out;
+    try { out = canvas.toDataURL("image/png"); }
+    catch (e) { alert("Sorry, this image can't be cropped right now. Try re-uploading it."); return; }
+    onSave(out, { zoom, offsetX: offset.x, offsetY: offset.y });
   }
 
   const r = drawRect();
@@ -5961,7 +5969,8 @@ function CropModal({ imageSrc, aspectW, aspectH, shapeRadius, initialZoom, initi
           style={{ width:VIEWPORT_W, height:VIEWPORT_H, margin:"0 auto", position:"relative", overflow:"hidden",
             background:"#f3f4f6", borderRadius:shapeRadius, border:"1px solid #e5e7eb", cursor: dragState.current?"grabbing":"grab" }}
           onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={endDrag} onMouseLeave={endDrag}>
-          <img ref={imgRef} src={imageSrc} draggable={false} onLoad={()=>setImgLoaded(true)}
+          <img ref={imgRef} key={wantCors ? "cors" : "plain"} src={imageSrc} crossOrigin={wantCors ? "anonymous" : undefined} draggable={false}
+            onLoad={()=>setImgLoaded(true)} onError={()=>{ if (wantCors) setCorsFailed(true); }}
             style={{ position:"absolute", left:r.x, top:r.y, width:r.w, height:r.h, maxWidth:"none", opacity:imgLoaded?1:0 }} />
           {/* Simple third-line grid overlay to help with framing */}
           <div style={{ position:"absolute", inset:0, pointerEvents:"none", opacity:0.25,
@@ -6183,7 +6192,7 @@ function AdvancedSocialPanel({ el, profile, inputStyle, onUpdateElStyle, onUpdat
 // Accepts bare numbers ("90") and stores them as "90px". Preserves "auto",
 // "%", and other explicit units the user types. Arrow buttons step by 1.
 // Shared image normalizer: downscale longest edge to maxDim (never upscale),
-// re-encode as lossless PNG, high-quality resampling. Used by every photo/logo
+// re-encode as JPEG (or PNG via opts.png / opts.keepPng), high-quality resampling. Used by every photo/logo
 // upload path so storage behavior is consistent (no giant blobs, no JPEG blur).
 // Tries the older execCommand("copy") approach first. This works by actually
 // selecting real DOM content and asking the browser to copy the current
@@ -6394,7 +6403,7 @@ function normalizeImageFile(file, cb, maxDim, opts) {
   // which matters because PNG alone, even resized, was still frequently too
   // large for email signature limits. PNG stays available (via opts.png)
   // for logos/badges/icons that need real transparency.
-  const usePng = opts && opts.png;
+  const usePng = (opts && opts.png) || (opts && opts.keepPng && file.type === "image/png");
   const quality = (opts && opts.quality) || 0.72;
   const square = opts && opts.square;
   const reader = new FileReader();
@@ -6453,6 +6462,13 @@ function normalizeImageFile(file, cb, maxDim, opts) {
 // clip large HTML, but a multi-megabyte GIF loads slowly and looks
 // unprofessional in a signature.
 const MAX_GIF_BYTES = 2 * 1024 * 1024; // 2 MB
+
+// Settings for general image uploads (image blocks, media library, row
+// backgrounds). These render up to the full 600px canvas width, so they're
+// kept at 2x that for retina screens, at high JPEG quality, with PNG sources
+// (screenshots, flyers, text-heavy graphics) kept as PNG so text stays crisp.
+// Stored in R2 rather than embedded, see handleImageFile.
+const HOSTED_IMAGE_OPTS = { quality: 0.9, keepPng: true, hosted: true };
 
 // Uploads an animated GIF (or any file we must keep byte-for-byte) to R2 and
 // returns its public URL. Unlike normalizeImageFile, this deliberately does
@@ -6537,8 +6553,27 @@ function handleImageFile(file, cb, maxDim, opts, auth) {
     file.type === "image/gif" || /\.gif$/i.test(file.name || "");
 
   if (!isGif) {
-    // Unchanged path for JPEG/PNG/etc.
-    normalizeImageFile(file, cb, maxDim, opts);
+    if (!(opts && opts.hosted)) {
+      normalizeImageFile(file, cb, maxDim, opts);
+      return;
+    }
+    // Hosted path: resize/re-encode as usual, then store the result in R2 and
+    // hand back its URL instead of embedding it. That's what lets these images
+    // stay retina-sharp (2x the 600px canvas) without bloating the saved
+    // signature toward Firestore's 1 MB document limit. If the upload fails
+    // for any reason, fall back to the embedded data URL so nothing is lost.
+    normalizeImageFile(file, async (dataUrl) => {
+      try {
+        const type = (dataUrl.match(/^data:([^;,]+)/) || [])[1] || "image/jpeg";
+        const blob = await (await fetch(dataUrl)).blob();
+        const base = (file.name || "image").replace(/\.[^.]+$/, "");
+        const out = new File([blob], base + (type === "image/png" ? ".png" : ".jpg"), { type });
+        cb(await withTimeout(uploadUserAssetToR2(out, auth), 25000, "Image upload"));
+      } catch (e) {
+        console.warn("[upload] image left embedded:", e && e.message);
+        cb(dataUrl);
+      }
+    }, maxDim, opts);
     return;
   }
 
@@ -7443,7 +7478,7 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
     handleImageFile(file, (dataUrl) => {
       onAddMedia(dataUrl, file.name);
       handleMediaClick(dataUrl);
-    }, 600, undefined, auth);
+    }, 1200, HOSTED_IMAGE_OPTS, auth);
     e.target.value = "";
   }
 
@@ -7452,7 +7487,7 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
     if (!file) return;
     // A row background can legitimately span the full 600px canvas width, so
     // it gets more headroom than a photo/logo/icon would.
-    normalizeImageFile(file, (dataUrl) => { onUpdateRowStyle(rowId, "backgroundImage", dataUrl); }, 700);
+    handleImageFile(file, (dataUrl) => { onUpdateRowStyle(rowId, "backgroundImage", dataUrl); }, 1400, HOSTED_IMAGE_OPTS, auth);
     e.target.value = "";
   }
 
@@ -8391,7 +8426,7 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
                 {selectedEl.content && <img src={selectedEl.content} alt="" style={{ width:"100%", height:60, objectFit:"cover", borderRadius:4, marginBottom:6, border:"1px solid #e5e7eb" }} />}
                 <label style={{ display:"block", width:"100%", background:"#f9fafb", border:"1px solid #e5e7eb", borderRadius:6, padding:"7px 8px", fontSize:15, cursor:"pointer", textAlign:"center", fontFamily:"inherit" }}>
                   Replace Image
-                  <input type="file" accept="image/*,image/gif" style={{ display:"none" }} onChange={e=>{const f=e.target.files?.[0];if(!f)return;handleImageFile(f, (dataUrl)=>{ onUpdateElContent(dataUrl); if(onAddMedia) onAddMedia(dataUrl, f.name); }, 600, undefined, auth);}} />
+                  <input type="file" accept="image/*,image/gif" style={{ display:"none" }} onChange={e=>{const f=e.target.files?.[0];if(!f)return;handleImageFile(f, (dataUrl)=>{ onUpdateElContent(dataUrl); if(onAddMedia) onAddMedia(dataUrl, f.name); }, 1200, HOSTED_IMAGE_OPTS, auth);}} />
                 </label>
                 <LinkedDimensionPair propLabel={propLabel} inputStyle={inputStyle}
                   widthValue={selectedEl.style?.width} widthDefault="100%"
@@ -9310,7 +9345,7 @@ function MediaLibraryPage({ mediaLibrary, signatures, onDelete, onAddMedia, onNa
   function handleUpload(e) {
     const file = e.target.files?.[0];
     if (!file) return;
-    handleImageFile(file, (dataUrl) => { onAddMedia(dataUrl, file.name); }, 600, undefined, auth);
+    handleImageFile(file, (dataUrl) => { onAddMedia(dataUrl, file.name); }, 1200, HOSTED_IMAGE_OPTS, auth);
     e.target.value = "";
   }
 
