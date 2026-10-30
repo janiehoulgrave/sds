@@ -6465,10 +6465,12 @@ const MAX_GIF_BYTES = 2 * 1024 * 1024; // 2 MB
 
 // Settings for general image uploads (image blocks, media library, row
 // backgrounds). These render up to the full 600px canvas width, so they're
-// kept at 2x that for retina screens, at high JPEG quality, with PNG sources
+// kept at 3x that: 2x for retina screens isn't enough once the editor zooms
+// the canvas up to 138% (600 x 1.38 x 2 = 1656px), and phones are often 3x.
+// High JPEG quality, with PNG sources
 // (screenshots, flyers, text-heavy graphics) kept as PNG so text stays crisp.
 // Stored in R2 rather than embedded, see handleImageFile.
-const HOSTED_IMAGE_OPTS = { quality: 0.9, keepPng: true, hosted: true };
+const HOSTED_IMAGE_OPTS = { quality: 0.92, keepPng: true, hosted: true };
 
 // Uploads an animated GIF (or any file we must keep byte-for-byte) to R2 and
 // returns its public URL. Unlike normalizeImageFile, this deliberately does
@@ -6559,7 +6561,7 @@ function handleImageFile(file, cb, maxDim, opts, auth) {
     }
     // Hosted path: resize/re-encode as usual, then store the result in R2 and
     // hand back its URL instead of embedding it. That's what lets these images
-    // stay retina-sharp (2x the 600px canvas) without bloating the saved
+    // stay retina-sharp (3x the 600px canvas) without bloating the saved
     // signature toward Firestore's 1 MB document limit. If the upload fails
     // for any reason, fall back to the embedded data URL so nothing is lost.
     normalizeImageFile(file, async (dataUrl) => {
@@ -7478,7 +7480,7 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
     handleImageFile(file, (dataUrl) => {
       onAddMedia(dataUrl, file.name);
       handleMediaClick(dataUrl);
-    }, 1200, HOSTED_IMAGE_OPTS, auth);
+    }, 1800, HOSTED_IMAGE_OPTS, auth);
     e.target.value = "";
   }
 
@@ -7487,7 +7489,7 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
     if (!file) return;
     // A row background can legitimately span the full 600px canvas width, so
     // it gets more headroom than a photo/logo/icon would.
-    handleImageFile(file, (dataUrl) => { onUpdateRowStyle(rowId, "backgroundImage", dataUrl); }, 1400, HOSTED_IMAGE_OPTS, auth);
+    handleImageFile(file, (dataUrl) => { onUpdateRowStyle(rowId, "backgroundImage", dataUrl); }, 1800, HOSTED_IMAGE_OPTS, auth);
     e.target.value = "";
   }
 
@@ -8426,7 +8428,7 @@ function Editor({ sig, profile, autofillEnabled, onToggleAutofill, editorTab, se
                 {selectedEl.content && <img src={selectedEl.content} alt="" style={{ width:"100%", height:60, objectFit:"cover", borderRadius:4, marginBottom:6, border:"1px solid #e5e7eb" }} />}
                 <label style={{ display:"block", width:"100%", background:"#f9fafb", border:"1px solid #e5e7eb", borderRadius:6, padding:"7px 8px", fontSize:15, cursor:"pointer", textAlign:"center", fontFamily:"inherit" }}>
                   Replace Image
-                  <input type="file" accept="image/*,image/gif" style={{ display:"none" }} onChange={e=>{const f=e.target.files?.[0];if(!f)return;handleImageFile(f, (dataUrl)=>{ onUpdateElContent(dataUrl); if(onAddMedia) onAddMedia(dataUrl, f.name); }, 1200, HOSTED_IMAGE_OPTS, auth);}} />
+                  <input type="file" accept="image/*,image/gif" style={{ display:"none" }} onChange={e=>{const f=e.target.files?.[0];if(!f)return;handleImageFile(f, (dataUrl)=>{ onUpdateElContent(dataUrl); if(onAddMedia) onAddMedia(dataUrl, f.name); }, 1800, HOSTED_IMAGE_OPTS, auth);}} />
                 </label>
                 <LinkedDimensionPair propLabel={propLabel} inputStyle={inputStyle}
                   widthValue={selectedEl.style?.width} widthDefault="100%"
@@ -9345,7 +9347,7 @@ function MediaLibraryPage({ mediaLibrary, signatures, onDelete, onAddMedia, onNa
   function handleUpload(e) {
     const file = e.target.files?.[0];
     if (!file) return;
-    handleImageFile(file, (dataUrl) => { onAddMedia(dataUrl, file.name); }, 1200, HOSTED_IMAGE_OPTS, auth);
+    handleImageFile(file, (dataUrl) => { onAddMedia(dataUrl, file.name); }, 1800, HOSTED_IMAGE_OPTS, auth);
     e.target.value = "";
   }
 
