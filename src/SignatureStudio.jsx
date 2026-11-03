@@ -4598,6 +4598,14 @@ export default function App() {
         {/* Spacer pushes profile to bottom */}
         <div style={{ flex:1 }} />
 
+        {/* Help & FAQ, just above Profile */}
+        <button
+          onClick={() => navigate("help")}
+          style={{ width:"100%", display:"flex", flexDirection:"column", alignItems:"center", gap:3, padding:"10px 4px", cursor:"pointer", border:"none", background: screen === "help" ? "#0051d5" : "transparent", color: screen === "help" ? "#fff" : "#888", fontFamily:"inherit", transition:"all 0.15s", marginBottom:2 }}>
+          <Icon name="help" size={22} />
+          <span style={{ fontSize:9, textTransform:"uppercase", letterSpacing:0.5 }}>Help</span>
+        </button>
+
         {/* Profile button pinned to bottom */}
         <button
           onClick={() => navigate("profile")}
@@ -4733,6 +4741,7 @@ export default function App() {
           />
         )}
         {screen === "profile" && <ProfileForm profile={profile} onSave={p => { saveProfile(p); showToast("Profile saved!"); }} onNavigate={navigate} onAddMedia={addToMediaLibrary} />}
+        {screen === "help" && <HelpPage />}
         {screen === "media" && <MediaLibraryPage mediaLibrary={mediaLibrary} signatures={signatures} onDelete={deleteFromMediaLibrary} onAddMedia={addToMediaLibrary} onNavigate={navigate} />}
         {screen === "export" && activeSig && <ExportScreen sig={activeSig} profile={effectiveProfile} onNavigate={navigate} onSave={saveCurrent} />}
       </main>
@@ -9340,6 +9349,197 @@ function ProfileForm({ profile, onSave, onNavigate, onAddMedia }) {
 // GIFs render live here (plain <img>), same as anywhere else. Delete removes
 // the library entry only -- see deleteFromMediaLibrary for why signatures and
 // R2 files are intentionally left untouched.
+// ── Help & FAQ page ───────────────────────────────────────────────────────
+// Short how-tos for the main features plus a contact card. Entries are plain
+// data so they're easy to edit; each answer is a list of steps or a short
+// paragraph. Keep these in step with the UI labels they mention.
+const HELP_CONTACT_EMAIL = "janie.houlgrave@compass.com";
+
+const HELP_SECTIONS = [
+  {
+    title: "Getting started",
+    items: [
+      {
+        q: "How do I set up my profile?",
+        steps: [
+          "Click Profile at the bottom of the left-hand menu.",
+          "Add your headshot, logo, contact details, and social links, then save.",
+          "Everything you enter fills in automatically across every signature you build, so you only type it once.",
+        ],
+      },
+      {
+        q: "How do I make a signature from a template?",
+        steps: [
+          "Click Templates in the left-hand menu.",
+          "Use the filters to narrow the list, then pick a design and click it to use it.",
+          "The design opens in the editor already filled in with your profile details.",
+        ],
+      },
+      {
+        q: "Can I start from a blank signature?",
+        steps: [
+          "Click Build in the left-hand menu to open an empty design.",
+          "Add rows, then drag elements from the Blocks tab into them.",
+        ],
+      },
+      {
+        q: "Where are the signatures I've already made?",
+        text: "Home shows your latest designs, and Recent lists all of them. Open any design from there to keep editing, or use its menu to rename, duplicate, or delete it.",
+      },
+    ],
+  },
+  {
+    title: "Editing your signature",
+    items: [
+      {
+        q: "How do I add text, images, buttons, or my contact details?",
+        steps: [
+          "In the editor, open the Blocks tab on the left.",
+          "Basic Elements are things like text, images, buttons, dividers, and badges.",
+          "Dynamic Elements (name, title, phone, email, headshot, and so on) pull straight from your profile.",
+          "Click an element on the canvas to change its style in the panel on the right.",
+        ],
+      },
+      {
+        q: "What does the Autofill My Details switch do?",
+        text: "With it on, Dynamic Elements show the details from your profile. Turn it off if you're building a signature for someone else and want to type their details in by hand.",
+      },
+      {
+        q: "How do I undo a change?",
+        text: "Use the undo and redo arrows at the top of the editor. Your work also saves automatically as you go.",
+      },
+      {
+        q: "Why does it say my signature has become too long?",
+        text: "Signatures taller than about 600 pixels get cut off in many email preview panes. Remove a row or shrink an image until the warning goes away.",
+      },
+    ],
+  },
+  {
+    title: "Images and uploads",
+    items: [
+      {
+        q: "How do I upload an image?",
+        steps: [
+          "Select an image element in the editor, or click the Media tab on the left.",
+          "Upload a JPG, PNG, or GIF from your computer.",
+          "Everything you upload is saved to your Media Library so you can reuse it in other signatures.",
+        ],
+      },
+      {
+        q: "How do I crop my headshot or an image?",
+        steps: [
+          "Select the headshot or image in the editor.",
+          "Click Crop Photo (or Crop Image) in the panel on the right.",
+          "Drag and zoom to frame it, then save.",
+        ],
+      },
+      {
+        q: "How do I manage or delete my uploads?",
+        text: "Click Media in the left-hand menu to see everything you've uploaded. If you delete an image that's still used in a signature, you'll be told which ones first.",
+      },
+    ],
+  },
+  {
+    title: "Using and sharing your signature",
+    items: [
+      {
+        q: "How do I put my signature into Gmail?",
+        steps: [
+          "In the editor, click Copy to Clipboard.",
+          "In Gmail, open Settings (the gear), then See all settings, then the General tab.",
+          "Scroll to Signature, create or pick a signature, and paste.",
+          "Scroll to the bottom and click Save Changes.",
+        ],
+      },
+      {
+        q: "How do I put my signature into Outlook?",
+        steps: [
+          "In the editor, click Copy to Clipboard.",
+          "In Outlook, open Settings, then Signatures (under Mail or Compose and reply).",
+          "Create a new signature, paste into the box, and save.",
+        ],
+      },
+      {
+        q: "How do I share a signature with someone else?",
+        steps: [
+          "In the editor, click Share Link. The link is copied for you.",
+          "Send it to the person. When they open it, they can copy the signature straight into their email, or click Make a Copy to My Account to edit their own version.",
+          "This is the best way to hand off a signature you built for a colleague, since pasting it into an email first can scramble the formatting.",
+        ],
+      },
+      {
+        q: "What is Copy HTML for?",
+        text: "It copies the signature's raw code. You only need it for custom email tools or if a developer asks for it. For Gmail and Outlook, use Copy to Clipboard.",
+      },
+    ],
+  },
+];
+
+function HelpFaqItem({ item, first }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ borderTop: first ? "none" : "1px solid #f0f0f0" }}>
+      <button onClick={() => setOpen(o => !o)} aria-expanded={open}
+        style={{ width:"100%", display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, padding:"14px 18px", border:"none", background:"transparent", cursor:"pointer", fontFamily:"inherit", textAlign:"left", fontSize:15, fontWeight:600, color:"#111827" }}>
+        <span>{item.q}</span>
+        <Icon name={open ? "expand_less" : "expand_more"} size={20} color="#6b7280" />
+      </button>
+      {open && (
+        <div style={{ padding:"0 18px 16px", fontSize:14, color:"#374151", lineHeight:1.6 }}>
+          {item.steps ? (
+            <ol style={{ margin:0, paddingLeft:20 }}>
+              {item.steps.map((s, i) => <li key={i} style={{ marginBottom:4 }}>{s}</li>)}
+            </ol>
+          ) : (
+            <p style={{ margin:0 }}>{item.text}</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HelpPage() {
+  return (
+    <div style={{ maxWidth:820 }}>
+      <div style={{ marginBottom:24 }}>
+        <h2 style={{ fontSize:24, fontWeight:800, color:"#111827", letterSpacing:-0.3 }}>Help &amp; FAQ</h2>
+        <p style={{ fontSize:15, color:"#6b7280", marginTop:4 }}>
+          Quick how-tos for the most common tasks. Click a question to see the steps.
+        </p>
+      </div>
+
+      {HELP_SECTIONS.map(section => (
+        <div key={section.title} style={{ marginBottom:20 }}>
+          <div style={{ fontSize:12, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8, color:"#6b7280", marginBottom:8 }}>{section.title}</div>
+          <div style={{ background:"#fff", border:"1px solid #e5e7eb", borderRadius:12, overflow:"hidden" }}>
+            {section.items.map((item, i) => <HelpFaqItem key={item.q} item={item} first={i === 0} />)}
+          </div>
+        </div>
+      ))}
+
+      <div style={{ background:"#fff", border:"1px solid #e5e7eb", borderRadius:12, padding:"20px 22px", display:"flex", alignItems:"center", gap:16, flexWrap:"wrap", marginTop:8 }}>
+        <div style={{ width:44, height:44, borderRadius:"50%", background:"#eef4ff", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+          <Icon name="support_agent" size={24} color="#0051d5" />
+        </div>
+        <div style={{ flex:1, minWidth:220 }}>
+          <div style={{ fontSize:16, fontWeight:800, color:"#111827" }}>Still need help?</div>
+          <div style={{ fontSize:14, color:"#6b7280", marginTop:2, lineHeight:1.5 }}>
+            Email Janie Houlgrave at{" "}
+            <a href={"mailto:" + HELP_CONTACT_EMAIL} style={{ color:"#0051d5", fontWeight:600 }}>{HELP_CONTACT_EMAIL}</a>
+            {" "}with a short description (and a screenshot, if you can).
+          </div>
+        </div>
+        <a href={"mailto:" + HELP_CONTACT_EMAIL + "?subject=" + encodeURIComponent("Signature Studio help")}
+          style={{ display:"inline-flex", alignItems:"center", gap:8, background:"#0051d5", color:"#fff", borderRadius:8, padding:"10px 16px", fontSize:14, fontWeight:600, textDecoration:"none", whiteSpace:"nowrap" }}>
+          <Icon name="mail" size={18} color="#fff" />
+          Email for help
+        </a>
+      </div>
+    </div>
+  );
+}
+
 function MediaLibraryPage({ mediaLibrary, signatures, onDelete, onAddMedia, onNavigate }) {
   // confirm holds { id, url, usedIn: [names] } for the item pending deletion.
   const [confirm, setConfirm] = useState(null);
