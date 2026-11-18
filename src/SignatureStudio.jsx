@@ -2750,7 +2750,7 @@ function generateSigHTML(sig, profile) {
 // --- Icon component (Material Symbols Outlined via web font) ---
 function Icon({ name, size=20, color, style: extraStyle }) {
   return (
-    <span style={{
+    <span className="ms-icon" style={{
       fontFamily:"'Material Symbols Outlined'",
       fontWeight:"300", fontStyle:"normal",
       fontSize:size, lineHeight:1, letterSpacing:"normal",
@@ -3128,7 +3128,9 @@ export default function App() {
     return () => { cancelled = true; };
   }, []);
 
-  // Inject Google Fonts on mount -- Material Symbols + Hanken Grotesk
+  // Inject Google Fonts on mount -- DM Sans, Hanken Grotesk, Tenor Sans.
+  // (Material Symbols is loaded in index.html with display=block so the
+  // icon names never flash as plain text while the font downloads.)
   useEffect(() => {
     // Google Fonts (UI chrome)
     const id = "ss-gfonts";
@@ -3136,7 +3138,7 @@ export default function App() {
       const link = document.createElement("link");
       link.id = id;
       link.rel = "stylesheet";
-      link.href = "https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Hanken+Grotesk:wght@300;400;500;600;700;800&family=Tenor+Sans&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20,300,0,0&display=swap";
+      link.href = "https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Hanken+Grotesk:wght@300;400;500;600;700;800&family=Tenor+Sans&display=swap";
       document.head.appendChild(link);
     }
     // Compass brand fonts (embedded)
@@ -5156,9 +5158,9 @@ function Dashboard({ signatures, profile, onNavigate, onOpenSig, onDeleteSig, on
                   Customize
                 </button>
                 <button
-                  onClick={() => { onOpenSig(sig); onNavigate("export"); }}
+                  onClick={() => onDuplicateSig(sig.id)}
                   style={{ background:"#e9edff", color:"#0051d5", border:"none", borderRadius:8, padding:"8px 10px", fontSize:15, cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center" }}
-                  title="Export"
+                  title="Duplicate"
                 >
                   <Icon name="content_copy" size={16} />
                 </button>
