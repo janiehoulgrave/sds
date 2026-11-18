@@ -8,10 +8,34 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png" />
     <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/favicon-180.png" />
+    <!-- Material Symbols icon font. display=block keeps icon names (e.g.
+         "home", "delete") invisible instead of showing them as plain text
+         while the font downloads, and the axes are pinned to what the Icon
+         component actually uses (weight 300, outline, 20px optical size) so
+         the download is a fraction of the full variable font. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20,300,0,0&display=block"
       rel="stylesheet"
     />
+    <style>
+      /* Belt and braces: keep icons hidden until the icon font is actually
+         ready, so the ligature text never flashes even on a slow connection
+         where display=block's 3s window runs out. */
+      html:not(.ms-ready) .ms-icon { visibility: hidden; }
+    </style>
+    <script>
+      (function () {
+        var root = document.documentElement;
+        function ready() { root.classList.add("ms-ready"); }
+        // Never keep icons hidden forever if the font fails to load.
+        setTimeout(ready, 8000);
+        try {
+          document.fonts.load("300 20px 'Material Symbols Outlined'", "home").then(ready, ready);
+        } catch (e) { ready(); }
+      })();
+    </script>
     <style>
       /* Baseline reset -- the app relies entirely on inline styles and never
          assumed any particular browser default, but without this, default
